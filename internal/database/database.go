@@ -946,7 +946,8 @@ func getTableCreationQueries() []string {
             deskripsi TEXT,
             icon TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            deleted_at DATETIME
         )`,
 
 		// Produk table
@@ -968,7 +969,8 @@ func getTableCreationQueries() []string {
             masa_simpan_hari INTEGER DEFAULT 0,
             hari_pemberitahuan_kadaluarsa INTEGER DEFAULT 30,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            deleted_at DATETIME
         )`,
 
 		// Keranjang table for scanned items
@@ -1048,7 +1050,8 @@ func getTableCreationQueries() []string {
             total_belanja INTEGER DEFAULT 0,
             alamat TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            deleted_at DATETIME
         )`,
 
 		// Promo table (Discount and promotion management)
@@ -1059,7 +1062,7 @@ func getTableCreationQueries() []string {
             tipe TEXT NOT NULL,
             tipe_promo TEXT DEFAULT 'diskon_produk',
             nilai INTEGER NOT NULL,
-            min_quantity INTEGER DEFAULT 0, 
+            min_quantity INTEGER DEFAULT 0,
             max_diskon INTEGER DEFAULT 0,
             buy_quantity INTEGER DEFAULT 0,
             get_quantity INTEGER DEFAULT 0,
@@ -1075,6 +1078,7 @@ func getTableCreationQueries() []string {
             deskripsi TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            deleted_at DATETIME,
             FOREIGN KEY (produk_x) REFERENCES produk(id) ON DELETE SET NULL,
             FOREIGN KEY (produk_y) REFERENCES produk(id) ON DELETE SET NULL
         )`,

@@ -51,3 +51,11 @@ func (d *PostgreSQLDialect) TranslateAutoIncrement(query string) string {
 
 	return query
 }
+
+// TranslateDataTypes converts SQLite data types to PostgreSQL equivalents
+func (d *PostgreSQLDialect) TranslateDataTypes(query string) string {
+	// Replace DATETIME with TIMESTAMP (PostgreSQL doesn't have DATETIME type)
+	query = strings.ReplaceAll(query, "DATETIME", "TIMESTAMP")
+
+	return query
+}

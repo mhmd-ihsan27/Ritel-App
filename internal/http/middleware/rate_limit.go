@@ -131,6 +131,12 @@ func RateLimit(limit int, window time.Duration) gin.HandlerFunc {
 	limiter := NewRateLimiter(limit, window)
 
 	return func(c *gin.Context) {
+		// Skip rate limiting for OPTIONS preflight requests (CORS)
+		if c.Request.Method == "OPTIONS" {
+			c.Next()
+			return
+		}
+
 		// Get client IP
 		clientIP := getClientIP(c)
 
@@ -186,6 +192,12 @@ func InitRateLimiters(globalLimit, loginLimit, apiLimit int, globalWindow, login
 // SmartRateLimit applies different rate limits based on the endpoint
 func SmartRateLimit() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Skip rate limiting for OPTIONS preflight requests (CORS)
+		if c.Request.Method == "OPTIONS" {
+			c.Next()
+			return
+		}
+
 		path := c.Request.URL.Path
 		clientIP := getClientIP(c)
 

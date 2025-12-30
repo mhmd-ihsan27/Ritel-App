@@ -20,10 +20,15 @@ type Dialect interface {
 
 	// TranslateAutoIncrement converts AUTOINCREMENT to the dialect-specific syntax
 	TranslateAutoIncrement(query string) string
+
+	// TranslateDataTypes converts data types to the dialect-specific equivalents
+	// e.g., DATETIME -> TIMESTAMP for PostgreSQL
+	TranslateDataTypes(query string) string
 }
 
 // TranslateQuery applies all dialect-specific translations to a query
 func TranslateQuery(query string, d Dialect) string {
+	query = d.TranslateDataTypes(query)
 	query = d.TranslatePlaceholders(query)
 	query = d.TranslateDateTimeNow(query)
 	query = d.TranslateAutoIncrement(query)

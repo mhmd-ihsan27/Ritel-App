@@ -27,3 +27,9 @@ func (d *SQLiteDialect) TranslateAutoIncrement(query string) string {
 	// No translation needed
 	return query
 }
+
+// TranslateDataTypes returns the query as-is since SQLite supports DATETIME
+func (d *SQLiteDialect) TranslateDataTypes(query string) string {
+	// SQLite supports DATETIME type, no translation needed
+	return query
+}
