@@ -1,0 +1,16 @@
+build/bin
+node_modules
+frontend/dist
+
+# Environment variables (contains sensitive data)
+.env
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+
+# Database backup files (but keep directory structure)
+database/backups/*.sql
+database/backups/*.sql.gz
+database/backups/*.dump

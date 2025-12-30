@@ -1,0 +1,262 @@
+/**
+ * Custom Scrollbar Styles
+ * Apply these classes to elements for different scrollbar styles
+ */
+
+/* ==================== GRADIENT SCROLLBAR VARIANTS ==================== */
+
+/* Blue Gradient Scrollbar */
+.scrollbar-blue::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+}
+
+.scrollbar-blue::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+  box-shadow: 0 0 6px rgba(59, 130, 246, 0.5);
+}
+
+/* Red Gradient Scrollbar */
+.scrollbar-red::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #ef4444 0%, #dc2626 100%);
+}
+
+.scrollbar-red::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #dc2626 0%, #b91c1c 100%);
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.5);
+}
+
+/* Yellow Gradient Scrollbar */
+.scrollbar-yellow::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #f59e0b 0%, #d97706 100%);
+}
+
+.scrollbar-yellow::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #d97706 0%, #b45309 100%);
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.5);
+}
+
+/* Purple Gradient Scrollbar */
+.scrollbar-purple::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #8b5cf6 0%, #7c3aed 100%);
+}
+
+.scrollbar-purple::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #7c3aed 0%, #6d28d9 100%);
+  box-shadow: 0 0 6px rgba(139, 92, 246, 0.5);
+}
+
+/* Pink Gradient Scrollbar */
+.scrollbar-pink::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #ec4899 0%, #db2777 100%);
+}
+
+.scrollbar-pink::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #db2777 0%, #be185d 100%);
+  box-shadow: 0 0 6px rgba(236, 72, 153, 0.5);
+}
+
+/* ==================== ANIMATED SCROLLBAR ==================== */
+
+/* Glowing Scrollbar */
+.scrollbar-glow::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #10b981 0%, #059669 100%);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+@keyframes glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 5px rgba(16, 185, 129, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 15px rgba(16, 185, 129, 0.6);
+  }
+}
+
+.scrollbar-glow::-webkit-scrollbar-thumb:hover {
+  animation: none;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.7);
+}
+
+/* Rainbow Scrollbar */
+.scrollbar-rainbow::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+    180deg,
+    #ef4444 0%,
+    #f59e0b 25%,
+    #10b981 50%,
+    #3b82f6 75%,
+    #8b5cf6 100%
+  );
+  background-size: 100% 200%;
+  animation: rainbow-scroll 3s linear infinite;
+}
+
+@keyframes rainbow-scroll {
+  0% {
+    background-position: 0% 0%;
+  }
+  100% {
+    background-position: 0% 100%;
+  }
+}
+
+.scrollbar-rainbow::-webkit-scrollbar-thumb:hover {
+  animation-duration: 1.5s;
+}
+
+/* ==================== MODERN FLAT SCROLLBAR ==================== */
+
+.scrollbar-flat::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.scrollbar-flat::-webkit-scrollbar-track {
+  background: transparent;
+  border-left: 1px solid #e5e7eb;
+}
+
+.scrollbar-flat::-webkit-scrollbar-thumb {
+  background: #10b981;
+  border-radius: 0;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+.scrollbar-flat::-webkit-scrollbar-thumb:hover {
+  background: #059669;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+/* ==================== MINIMAL SCROLLBAR ==================== */
+
+.scrollbar-minimal::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.scrollbar-minimal::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-minimal::-webkit-scrollbar-thumb {
+  background: rgba(16, 185, 129, 0.5);
+  border-radius: 2px;
+}
+
+.scrollbar-minimal::-webkit-scrollbar-thumb:hover {
+  background: rgba(16, 185, 129, 0.8);
+}
+
+/* ==================== ROUNDED EDGE SCROLLBAR ==================== */
+
+.scrollbar-rounded::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+
+.scrollbar-rounded::-webkit-scrollbar-track {
+  background: #f3f4f6;
+  border-radius: 20px;
+  margin: 4px;
+  border: 1px solid #e5e7eb;
+}
+
+.scrollbar-rounded::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #10b981 0%, #059669 100%);
+  border-radius: 20px;
+  border: 3px solid #f3f4f6;
+  background-clip: padding-box;
+}
+
+.scrollbar-rounded::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #059669 0%, #047857 100%);
+  border: 3px solid #f3f4f6;
+  background-clip: padding-box;
+}
+
+/* ==================== UTILITY CLASSES ==================== */
+
+/* Auto hide scrollbar until hover */
+.scrollbar-autohide::-webkit-scrollbar {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.scrollbar-autohide:hover::-webkit-scrollbar {
+  opacity: 1;
+}
+
+/* Always show scrollbar */
+.scrollbar-always {
+  overflow: auto !important;
+}
+
+.scrollbar-always::-webkit-scrollbar {
+  display: block !important;
+}
+
+/* Smooth scrolling for containers */
+.smooth-scroll {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ==================== RESPONSIVE SCROLLBAR ==================== */
+
+/* Smaller scrollbar on mobile */
+@media (max-width: 768px) {
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    border: 1px solid transparent;
+  }
+}
+
+/* ==================== TABLE SPECIFIC SCROLLBAR ==================== */
+
+.table-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.table-scroll::-webkit-scrollbar-track {
+  background: #f9fafb;
+  border-radius: 0;
+}
+
+.table-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(90deg, #10b981 0%, #059669 100%);
+  border-radius: 4px;
+}
+
+.table-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(90deg, #059669 0%, #047857 100%);
+}
+
+/* Horizontal table scroll indicator */
+.table-scroll {
+  position: relative;
+}
+
+.table-scroll::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 30px;
+  background: linear-gradient(to right, transparent, rgba(16, 185, 129, 0.1));
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.table-scroll:hover::after {
+  opacity: 1;
+}

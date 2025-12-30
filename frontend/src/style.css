@@ -1,0 +1,279 @@
+@import "tailwindcss";
+
+
+:root {
+  --primary: #2e7d32;
+  --primary-light: #4caf50;
+  --primary-dark: #1b5e20;
+  --secondary: #fdd835;
+  --secondary-light: #ffb74d;
+  --accent: #795548;
+}
+
+.animate-popup {
+  animation: popup 0.3s ease-out;
+}
+
+button {
+    cursor: pointer;
+}
+
+ 
+
+@keyframes popup {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.scanner-active {
+  width: 100%;
+  height: 300px;
+  background-color: #f3f4f6;
+  border: 2px dashed #d1d5db;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.5rem;
+}
+
+.menu-dropdown {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+.menu-dropdown.closed {
+  grid-template-rows: 0fr;
+}
+
+.menu-dropdown.open {
+  grid-template-rows: 1fr;
+}
+
+.menu-dropdown > div {
+  min-height: 0;
+}
+
+.product-card {
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.product-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1),
+    0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+/* Mobile Layout */
+@media (max-width: 768px) {
+  .mobile-bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: white;
+    padding: 10px 0;
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+    z-index: 100;
+  }
+
+  /* Add padding to main content for mobile header */
+  .main-content {
+    padding-bottom: 70px !important; /* Space for bottom nav */
+  }
+}
+
+/* Desktop Layout with Fixed Header and Sidebar */
+@media (min-width: 769px) {
+  .main-content {
+    min-height: calc(100vh - 4rem); /* Account for header height */
+  }
+}
+
+/* Custom styles for React components */
+.page {
+  display: block;
+  background-color: #f0fdf4;
+
+}
+
+.page.hidden {
+  display: none;
+}
+
+.bg-primary {
+  background-color: var(--primary);
+}
+
+.bg-primary-dark {
+  background-color: var(--primary-dark);
+}
+
+.bg-primary-light {
+  background-color: var(--primary-light);
+}
+
+.bg-secondary {
+  background-color: var(--secondary);
+}
+
+.bg-secondary-light {
+  background-color: var(--secondary-light);
+}
+
+.text-primary {
+  color: var(--primary);
+}
+
+.text-secondary {
+  color: var(--secondary);
+}
+
+.hover\:bg-primary-dark:hover {
+  background-color: var(--primary-dark);
+}
+
+/* Sidebar scrollbar styling */
+.desktop-menu::-webkit-scrollbar {
+  width: 6px;
+}
+
+.desktop-menu::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.desktop-menu::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 3px;
+}
+
+.desktop-menu::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+/* Smooth transitions for sidebar buttons */
+.desktop-menu button {
+  transition: background-color 0.2s ease-in-out;
+}
+
+.desktop-menu button:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Submenu items smooth fade-in */
+.menu-dropdown > div > button {
+  transition: opacity 0.2s ease-out;
+}
+
+.menu-dropdown.closed > div > button {
+  opacity: 0;
+}
+
+.menu-dropdown.open > div > button {
+  opacity: 1;
+}
+
+/* Toast Notification Animations */
+.toast-enter {
+  animation: slideInRight 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes slideInRight {
+  0% {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.toast-progress {
+  animation: progressBar linear forwards;
+  transform-origin: left;
+}
+
+@keyframes progressBar {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/* Custom Dropdown Styles */
+.custom-select-dropdown {
+  animation: dropdownSlideIn 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes dropdownSlideIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Custom scrollbar for dropdown */
+.custom-select-dropdown::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-select-dropdown::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 10px;
+}
+
+.custom-select-dropdown::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 10px;
+}
+
+.custom-select-dropdown::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* Smooth transitions for hover states */
+.custom-select-option {
+  transition: all 0.15s ease-in-out;
+}
+
+.custom-select-option:hover {
+  transform: translateX(4px);
+}
+
+/* Font Family for Price Numbers */
+.price-input {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', 'Consolas', 'Courier New', monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.5px;
+  font-weight: 500;
+}
+
+/* Apply to any input with name containing 'harga' */
+input[name*="harga"] {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', 'Consolas', 'Courier New', monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.5px;
+  font-weight: 500;
+}
+
+/* Alternative: Apply to price display elements */
+.price-display {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', 'Consolas', 'Courier New', monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}

@@ -1,0 +1,1484 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+    faLeaf,
+    faChartLine,
+    faShoppingCart,
+    faPlusCircle,
+    faList,
+    faFileAlt,
+    faMoneyBillWave,
+    faReceipt,
+    faShoppingBasket,
+    faClock,
+    faExclamationTriangle,
+    faArrowUp,
+    faSyncAlt,
+    faCamera,
+    faSave,
+    faUserPlus,
+    faCreditCard,
+    faQrcode,
+    faTimes,
+    faSearch,
+    faEdit,
+    faTrash,
+    faFilter,
+    faBell,
+    faSignOutAlt,
+    faBars,
+    faBoxOpen,
+    faChevronDown,
+    faChevronRight,
+    faHistory,
+    faUndo,
+    faWarehouse,
+    faTags,
+    faPercent,
+    faUsers,
+    faStar,
+    faUserTag,
+    faChartBar,
+    faChartPie,
+    faCoins,
+    faWallet,
+    faHandHoldingUsd,
+    faUserFriends
+} from '@fortawesome/free-solid-svg-icons';
+import './App.css';
+
+const App = () => {
+    // State management
+    const [currentPage, setCurrentPage] = useState('dashboard-page');
+    const [produkData, setProdukData] = useState([]);
+    const [transaksiData, setTransaksiData] = useState([]);
+    const [kategoriData] = useState(['Sayuran Hijau', 'Buah-buahan', 'Umbi-umbian', 'Bumbu Dapur']);
+    const [pelangganData] = useState([
+        { id: 1, nama: 'Pelanggan Reguler', tipe: 'reguler', diskon: 0, poin: 0 },
+        { id: 2, nama: 'Budi Santoso', tipe: 'premium', diskon: 10, poin: 150 },
+        { id: 3, nama: 'Siti Rahayu', tipe: 'gold', diskon: 15, poin: 300 }
+    ]);
+    const [transaksiItems, setTransaksiItems] = useState([]);
+    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const [notifDropdownOpen, setNotifDropdownOpen] = useState(false);
+    const [searchKeyword, setSearchKeyword] = useState('');
+    const [selectedPelanggan, setSelectedPelanggan] = useState('');
+    const [metodeBayar, setMetodeBayar] = useState('');
+
+    // Menu collapse state
+    const [menuOpen, setMenuOpen] = useState({
+        transaksi: true,
+        produk: false,
+        pelanggan: false,
+        laporan: false
+    });
+
+    // Refs
+    const salesChartRef = useRef(null);
+
+    // Dashboard data
+    const [dashboardData, setDashboardData] = useState({
+        pendapatanHariIni: 0,
+        totalTransaksi: 0,
+        produkTerjual: 0,
+        countKadaluarsa: 0
+    });
+
+    // Form states
+    const [formProduk, setFormProduk] = useState({
+        sku: '',
+        barcode: '',
+        nama: '',
+        kategori: '',
+        hargaBeli: '',
+        hargaJual: '',
+        stok: '',
+        satuan: 'kg',
+        kadaluarsa: '',
+        tanggalMasuk: '',
+        deskripsi: ''
+    });
+
+    // Initialize app
+    useEffect(() => {
+        generateDashboardData();
+        setupSalesChart();
+        updateExpiryNotifications();
+    }, []);
+
+    // Navigation functions
+    const showPage = (pageId) => {
+        setCurrentPage(pageId);
+        setMobileMenuOpen(false);
+    };
+
+    const toggleMobileMenu = () => {
+        setMobileMenuOpen(!mobileMenuOpen);
+    };
+
+    const toggleNotifDropdown = () => {
+        setNotifDropdownOpen(!notifDropdownOpen);
+    };
+
+    const toggleMenuSection = (section) => {
+        setMenuOpen(prev => ({
+            ...prev,
+            [section]: !prev[section]
+        }));
+    };
+
+    // Dashboard functions
+    const generateDashboardData = () => {
+        const pendapatanHariIni = Math.floor(Math.random() * 5000000) + 1000000;
+        const totalTransaksi = Math.floor(Math.random() * 50) + 10;
+        const produkTerjual = Math.floor(Math.random() * 200) + 50;
+        const countKadaluarsa = Math.floor(Math.random() * 10);
+
+        setDashboardData({
+            pendapatanHariIni,
+            totalTransaksi,
+            produkTerjual,
+            countKadaluarsa
+        });
+    };
+
+    const setupSalesChart = () => {
+        // Chart.js implementation would go here
+        // For now, we'll just set up the canvas
+    };
+
+    const updateExpiryNotifications = () => {
+        // Implementation for expiry notifications
+    };
+
+    const updateProdukTerlaris = () => {
+        // Implementation for best selling products
+    };
+
+    // Product functions
+    const generateSKU = () => {
+        const sku = 'FV' + Date.now().toString().slice(-6);
+        setFormProduk({ ...formProduk, sku });
+    };
+
+    const handleInputChange = (e) => {
+        const { name, value } = e.target;
+        setFormProduk({ ...formProduk, [name]: value });
+    };
+
+    const simpanProduk = () => {
+        const produk = {
+            ...formProduk,
+            hargaBeli: parseHarga(formProduk.hargaBeli),
+            hargaJual: parseHarga(formProduk.hargaJual),
+            stok: parseInt(formProduk.stok) || 0
+        };
+
+        if (!produk.sku || !produk.nama || !produk.hargaJual) {
+            alert('Harap isi semua field yang wajib diisi (SKU, Nama Produk, Harga Jual)');
+            return;
+        }
+
+        setProdukData([...produkData, produk]);
+
+        // Reset form
+        setFormProduk({
+            sku: '',
+            barcode: '',
+            nama: '',
+            kategori: '',
+            hargaBeli: '',
+            hargaJual: '',
+            stok: '',
+            satuan: 'kg',
+            kadaluarsa: '',
+            tanggalMasuk: '',
+            deskripsi: ''
+        });
+
+        alert('Produk berhasil disimpan!');
+    };
+
+    // Transaction functions
+    const handlePelangganChange = (e) => {
+        setSelectedPelanggan(e.target.value);
+    };
+
+    const tambahProdukKeTransaksi = (produk, jumlah, hargaSatuan) => {
+        const existingItem = transaksiItems.find(item => item.sku === produk.sku);
+
+        if (existingItem) {
+            const updatedItems = transaksiItems.map(item =>
+                item.sku === produk.sku
+                    ? { ...item, jumlah: item.jumlah + jumlah, subtotal: (item.jumlah + jumlah) * item.hargaSatuan }
+                    : item
+            );
+            setTransaksiItems(updatedItems);
+        } else {
+            setTransaksiItems([...transaksiItems, {
+                sku: produk.sku,
+                nama: produk.nama,
+                hargaSatuan: hargaSatuan,
+                jumlah: jumlah,
+                subtotal: jumlah * hargaSatuan
+            }]);
+        }
+    };
+
+    const resetTransaksi = () => {
+        setTransaksiItems([]);
+        setSelectedPelanggan('');
+        setMetodeBayar('');
+    };
+
+    const prosesPembayaran = () => {
+        if (transaksiItems.length === 0) {
+            alert('Tidak ada produk dalam transaksi');
+            return;
+        }
+
+        if (!metodeBayar) {
+            alert('Pilih metode pembayaran terlebih dahulu');
+            return;
+        }
+
+        // Save transaction logic here
+        alert('Transaksi berhasil diproses!');
+        resetTransaksi();
+    };
+
+    // Utility functions
+    const formatRupiah = (angka) => {
+        return 'Rp ' + angka.toLocaleString('id-ID');
+    };
+
+    const parseHarga = (hargaString) => {
+        const numericString = hargaString.replace(/\D/g, '');
+        return parseInt(numericString) || 0;
+    };
+
+    // Render functions
+    const renderDashboard = () => (
+        <div id="dashboard-page" className="page">
+            <div className="mb-6">
+                <h2 className="text-2xl font-bold text-gray-800">Dashboard</h2>
+                <p className="text-gray-600">Ringkasan performa toko sayuran Anda</p>
+            </div>
+
+            {/* Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-6 md:mb-8">
+                <div className="bg-white rounded-xl shadow p-4 md:p-6">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <p className="text-gray-500 text-sm">Pendapatan Hari Ini</p>
+                            <h3 className="text-xl md:text-2xl font-bold text-gray-800 mt-1">
+                                {formatRupiah(dashboardData.pendapatanHariIni)}
+                            </h3>
+                            <p className="text-green-500 text-sm mt-1">
+                                <FontAwesomeIcon icon={faArrowUp} className="mr-1" /> 0% dari kemarin
+                            </p>
+                        </div>
+                        <div className="bg-green-100 p-2 md:p-3 rounded-full">
+                            <FontAwesomeIcon icon={faMoneyBillWave} className="text-green-600 text-lg md:text-xl" />
+                        </div>
+                    </div>
+                </div>
+
+                <div className="bg-white rounded-xl shadow p-4 md:p-6">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <p className="text-gray-500 text-sm">Total Transaksi</p>
+                            <h3 className="text-xl md:text-2xl font-bold text-gray-800 mt-1">
+                                {dashboardData.totalTransaksi}
+                            </h3>
+                            <p className="text-green-500 text-sm mt-1">
+                                <FontAwesomeIcon icon={faArrowUp} className="mr-1" /> 0% dari kemarin
+                            </p>
+                        </div>
+                        <div className="bg-blue-100 p-2 md:p-3 rounded-full">
+                            <FontAwesomeIcon icon={faReceipt} className="text-blue-600 text-lg md:text-xl" />
+                        </div>
+                    </div>
+                </div>
+
+                <div className="bg-white rounded-xl shadow p-4 md:p-6">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <p className="text-gray-500 text-sm">Produk Terjual</p>
+                            <h3 className="text-xl md:text-2xl font-bold text-gray-800 mt-1">
+                                {dashboardData.produkTerjual}
+                            </h3>
+                            <p className="text-green-500 text-sm mt-1">
+                                <FontAwesomeIcon icon={faArrowUp} className="mr-1" /> 0% dari kemarin
+                            </p>
+                        </div>
+                        <div className="bg-purple-100 p-2 md:p-3 rounded-full">
+                            <FontAwesomeIcon icon={faShoppingBasket} className="text-purple-600 text-lg md:text-xl" />
+                        </div>
+                    </div>
+                </div>
+
+                <div className="bg-white rounded-xl shadow p-4 md:p-6">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <p className="text-gray-500 text-sm">Produk Akan Kadaluarsa</p>
+                            <h3 className="text-xl md:text-2xl font-bold text-gray-800 mt-1">
+                                {dashboardData.countKadaluarsa}
+                            </h3>
+                            <p className="text-red-500 text-sm mt-1">
+                                <FontAwesomeIcon icon={faExclamationTriangle} className="mr-1" /> Perlu perhatian
+                            </p>
+                        </div>
+                        <div className="bg-red-100 p-2 md:p-3 rounded-full">
+                            <FontAwesomeIcon icon={faClock} className="text-red-600 text-lg md:text-xl" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Charts and Tables */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-6 md:mb-8">
+                <div className="bg-white rounded-xl shadow p-4 md:p-6">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-semibold text-gray-800">Grafik Penjualan</h3>
+                        <div className="flex space-x-2">
+                            <select className="px-3 py-1 border border-gray-300 rounded-lg text-sm">
+                                <option value="3hari">3 Hari Terakhir</option>
+                                <option value="minggu">Minggu Ini</option>
+                                <option value="bulan">Bulan Ini</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div className="h-48 md:h-64">
+                        <canvas id="penjualan-chart" ref={salesChartRef}></canvas>
+                    </div>
+                </div>
+
+                <div className="bg-white rounded-xl shadow p-4 md:p-6">
+                    <h3 className="text-lg font-semibold text-gray-800 mb-4">Produk Terlaris</h3>
+                    <div className="space-y-4">
+                        <div className="text-center text-gray-500 py-8">
+                            <FontAwesomeIcon icon={faShoppingBasket} className="text-4xl mb-2" />
+                            <p>Belum ada data penjualan</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderInputBarang = () => (
+        <div id="input-barang" className="page">
+            <div className="mb-6">
+                <h2 className="text-2xl font-bold text-gray-800">Input Barang Baru</h2>
+                <p className="text-gray-600">Tambahkan produk sayuran baru ke dalam sistem</p>
+            </div>
+
+            <div className="bg-white rounded-xl shadow mb-8">
+                <div className="p-4 md:p-6 border-b border-gray-300">
+                    <h3 className="text-lg font-semibold text-gray-800">Form Input Barang</h3>
+                </div>
+                <div className="p-4 md:p-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+                        <div className="md:col-span-2">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Kode SKU</label>
+                            <div className="flex space-x-2">
+                                <input
+                                    type="text"
+                                    name="sku"
+                                    value={formProduk.sku}
+                                    onChange={handleInputChange}
+                                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg"
+                                    placeholder="Kode SKU produk"
+                                    readOnly
+                                />
+                                <button
+                                    onClick={generateSKU}
+                                    className="bg-primary hover:bg-primary-dark text-white px-4 py-2 rounded-lg"
+                                >
+                                    <FontAwesomeIcon icon={faSyncAlt} className="mr-2" /> Generate
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="md:col-span-2">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Kode Barcode</label>
+                            <div className="flex space-x-2">
+                                <input
+                                    type="text"
+                                    name="barcode"
+                                    value={formProduk.barcode}
+                                    onChange={handleInputChange}
+                                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg"
+                                    placeholder="Kode barcode produk"
+                                />
+                                <button className="bg-primary hover:bg-primary-dark text-white px-4 py-2 rounded-lg">
+                                    <FontAwesomeIcon icon={faCamera} className="mr-2" /> Scan
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* ... rest of the form fields ... */}
+
+                    </div>
+
+                    <div className="mt-6 flex justify-end">
+                        <button
+                            onClick={simpanProduk}
+                            className="bg-primary hover:bg-primary-dark text-white px-6 py-2 rounded-lg font-medium"
+                        >
+                            <FontAwesomeIcon icon={faSave} className="mr-2" /> Simpan Produk
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderTransaksi = () => {
+        const selectedPelangganData = pelangganData.find(p => p.id === parseInt(selectedPelanggan));
+        const subtotal = transaksiItems.reduce((sum, item) => sum + item.subtotal, 0);
+        const diskonPelanggan = selectedPelangganData ? (subtotal * selectedPelangganData.diskon / 100) : 0;
+        const total = subtotal - diskonPelanggan;
+
+        return (
+            <div id="transaksi" className="page">
+                <div className="mb-6">
+                    <h2 className="text-2xl font-bold text-gray-800">Transaksi Penjualan</h2>
+                    <p className="text-gray-600">Kelola transaksi penjualan sayuran</p>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className="lg:col-span-3">
+                        {/* Pilih Pelanggan */}
+                        <div className="bg-white rounded-xl shadow mb-6">
+                            <div className="p-4 md:p-6 border-b border-gray-300">
+                                <h3 className="text-lg font-semibold text-gray-800">Pilih Pelanggan</h3>
+                            </div>
+                            <div className="p-4 md:p-6">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div className="md:col-span-2">
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Pilih Pelanggan</label>
+                                        <select
+                                            value={selectedPelanggan}
+                                            onChange={handlePelangganChange}
+                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                                        >
+                                            <option value="">Pelanggan Reguler</option>
+                                            {pelangganData.map(pelanggan => (
+                                                <option key={pelanggan.id} value={pelanggan.id}>
+                                                    {pelanggan.nama}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="flex items-end">
+                                        <button className="w-full bg-primary hover:bg-green-600 text-white px-4 py-2 rounded-lg">
+                                            <FontAwesomeIcon icon={faUserPlus} className="mr-2" /> Pelanggan Baru
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {selectedPelangganData && (
+                                    <div className="mt-3 p-3 bg-blue-50 rounded-lg">
+                                        <div className="flex justify-between items-center">
+                                            <div>
+                                                <span className="font-medium">{selectedPelangganData.nama}</span>
+                                                <span className="ml-2 px-2 py-1 rounded-full text-xs bg-blue-200 text-blue-800">
+                                                    {selectedPelangganData.tipe.toUpperCase()}
+                                                </span>
+                                            </div>
+                                            <div className="text-sm">
+                                                Poin: <span>{selectedPelangganData.poin}</span>
+                                            </div>
+                                        </div>
+                                        <div className="text-sm text-gray-600 mt-1">
+                                            Diskon: {selectedPelangganData.diskon}%
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Daftar Produk yang Ditambahkan */}
+                        <div className="bg-white rounded-xl shadow mb-6">
+                            <div className="p-4 md:p-6 border-b border-gray-300">
+                                <h3 className="text-lg font-semibold text-gray-800">Daftar Produk</h3>
+                            </div>
+                            <div className="p-4 md:p-6">
+                                <div className="space-y-3">
+                                    {transaksiItems.length === 0 ? (
+                                        <div className="text-center text-gray-500 py-8">
+                                            <FontAwesomeIcon icon={faShoppingCart} className="text-4xl mb-2" />
+                                            <p>Belum ada produk ditambahkan</p>
+                                        </div>
+                                    ) : (
+                                        transaksiItems.map((item, index) => (
+                                            <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                                                <div className="flex-1">
+                                                    <h4 className="font-medium text-gray-800">{item.nama}</h4>
+                                                    <p className="text-sm text-gray-600">
+                                                        {formatRupiah(item.hargaSatuan)} x {item.jumlah}
+                                                    </p>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="font-medium text-primary">{formatRupiah(item.subtotal)}</p>
+                                                    <button
+                                                        onClick={() => {
+                                                            const newItems = [...transaksiItems];
+                                                            newItems.splice(index, 1);
+                                                            setTransaksiItems(newItems);
+                                                        }}
+                                                        className="text-red-500 text-sm mt-1"
+                                                    >
+                                                        <FontAwesomeIcon icon={faTrash} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Ringkasan Pembayaran */}
+                        <div className="bg-white rounded-xl shadow">
+                            <div className="p-4 md:p-6 border-b border-gray-300">
+                                <h3 className="text-lg font-semibold text-gray-800">Ringkasan Pembayaran</h3>
+                            </div>
+                            <div className="p-4 md:p-6">
+                                <div className="space-y-3 mb-4">
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-600">Subtotal:</span>
+                                        <span className="font-medium">{formatRupiah(subtotal)}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-600">Diskon Pelanggan:</span>
+                                        <span className="font-medium text-green-600">- {formatRupiah(diskonPelanggan)}</span>
+                                    </div>
+                                    <div className="flex justify-between text-lg font-bold border-t pt-3">
+                                        <span>Total:</span>
+                                        <span className="text-primary">{formatRupiah(total)}</span>
+                                    </div>
+                                </div>
+
+                                <div className="mb-4">
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">Metode Pembayaran</label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <button
+                                            onClick={() => setMetodeBayar('tunai')}
+                                            className={`py-2 px-4 rounded-lg transition-colors ${metodeBayar === 'tunai'
+                                                ? 'bg-primary text-white'
+                                                : 'bg-gray-100 hover:bg-primary hover:text-white'
+                                                }`}
+                                        >
+                                            <FontAwesomeIcon icon={faMoneyBillWave} className="mr-2" /> Tunai
+                                        </button>
+                                        <button
+                                            onClick={() => setMetodeBayar('qris')}
+                                            className={`py-2 px-4 rounded-lg transition-colors ${metodeBayar === 'qris'
+                                                ? 'bg-primary text-white'
+                                                : 'bg-gray-100 hover:bg-primary hover:text-white'
+                                                }`}
+                                        >
+                                            <FontAwesomeIcon icon={faQrcode} className="mr-2" /> QRIS
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="flex space-x-3">
+                                    <button
+                                        onClick={resetTransaksi}
+                                        className="flex-1 bg-gray-500 hover:bg-gray-600 text-white py-3 rounded-lg font-medium"
+                                    >
+                                        <FontAwesomeIcon icon={faTimes} className="mr-2" /> Reset
+                                    </button>
+                                    <button
+                                        onClick={prosesPembayaran}
+                                        className="flex-1 bg-secondary hover:bg-secondary-light text-white py-3 rounded-lg font-medium text-lg"
+                                    >
+                                        <FontAwesomeIcon icon={faCreditCard} className="mr-2" /> Bayar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    const renderProduk = () => (
+        <div id="produk" className="page">
+            <div className="mb-6">
+                <h2 className="text-2xl font-bold text-gray-800">Daftar Produk</h2>
+                <p className="text-gray-600">Lihat stok produk sayuran yang tersedia</p>
+            </div>
+
+            <div className="bg-white rounded-xl shadow mb-6">
+                <div className="p-4 md:p-6 border-b border-gray-300 flex flex-col md:flex-row justify-between items-start md:items-center space-y-3 md:space-y-0">
+                    <h3 className="text-lg font-semibold text-gray-800">Semua Produk</h3>
+                    <div className="flex space-x-2 w-full md:w-auto">
+                        <input
+                            type="text"
+                            value={searchKeyword}
+                            onChange={(e) => setSearchKeyword(e.target.value)}
+                            placeholder="Cari berdasarkan nama atau SKU..."
+                            className="flex-1 md:w-64 px-4 py-2 border border-gray-300 rounded-lg"
+                        />
+                        <button className="bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-lg">
+                            <FontAwesomeIcon icon={faSearch} />
+                        </button>
+                    </div>
+                </div>
+                <div className="p-4 md:p-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+                        {produkData.length === 0 ? (
+                            <div className="col-span-full text-center text-gray-500 py-8">
+                                <FontAwesomeIcon icon={faBoxOpen} className="text-4xl mb-2" />
+                                <p>Belum ada produk yang ditambahkan</p>
+                            </div>
+                        ) : (
+                            produkData.map((produk, index) => {
+                                let stokBadge = '';
+                                if (produk.stok <= 0) {
+                                    stokBadge = <span className="bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs">Habis</span>;
+                                } else if (produk.stok < 10) {
+                                    stokBadge = <span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full text-xs">Terbatas</span>;
+                                } else {
+                                    stokBadge = <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs">Tersedia</span>;
+                                }
+
+                                return (
+                                    <div key={index} className="bg-white border border-gray-300 rounded-xl overflow-hidden product-card">
+                                        <div className="p-4 md:p-6">
+                                            <div className="flex justify-between items-start mb-2">
+                                                <h3 className="font-bold text-gray-800 text-lg">{produk.nama}</h3>
+                                                {stokBadge}
+                                            </div>
+                                            <p className="text-gray-600 text-sm mb-1">SKU: {produk.sku}</p>
+                                            <p className="text-gray-600 text-sm mb-3">Kategori: {produk.kategori}</p>
+
+                                            <div className="flex justify-between items-center mb-4">
+                                                <div>
+                                                    <p className="text-gray-500 text-sm">Stok</p>
+                                                    <p className="font-medium">{produk.stok} {produk.satuan}</p>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="text-gray-500 text-sm">Harga Jual</p>
+                                                    <p className="font-bold text-primary">{formatRupiah(produk.hargaJual)}</p>
+                                                </div>
+                                            </div>
+
+                                            <button className="w-full bg-primary hover:bg-primary-dark text-white py-2 px-4 rounded-lg">
+                                                <FontAwesomeIcon icon={faEdit} className="mr-2" /> Edit
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderLaporan = () => (
+        <div id="laporan" className="page">
+            <div className="mb-6">
+                <h2 className="text-2xl font-bold text-gray-800">Laporan Penjualan</h2>
+                <p className="text-gray-600">Analisis laporan penjualan harian, mingguan, dan bulanan</p>
+            </div>
+
+            <div className="bg-white rounded-xl shadow mb-6">
+                <div className="p-4 md:p-6 border-b border-gray-300">
+                    <h3 className="text-lg font-semibold text-gray-800">Filter Laporan</h3>
+                </div>
+                <div className="p-4 md:p-6">
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-3 md:gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Jenis Laporan</label>
+                            <select className="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                                <option value="produk-terjual">Produk Terjual</option>
+                                <option value="produk-belum-terjual">Produk Belum Terjual</option>
+                                <option value="penjualan">Penjualan</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Periode</label>
+                            <select className="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                                <option value="hari-ini">Hari Ini</option>
+                                <option value="minggu-ini">Minggu Ini</option>
+                                <option value="bulan-ini">Bulan Ini</option>
+                                <option value="tahun-ini">Tahun Ini</option>
+                                <option value="kustom">Kustom</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Dari Tanggal</label>
+                            <input type="date" className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Sampai Tanggal</label>
+                            <input type="date" className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
+                        </div>
+                        <div className="flex items-end">
+                            <button className="w-full bg-primary hover:bg-primary-dark text-white py-2 px-4 rounded-lg">
+                                <FontAwesomeIcon icon={faFilter} className="mr-2" /> Filter
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow">
+                <div className="p-4 md:p-6 border-b border-gray-300">
+                    <h3 className="text-lg font-semibold text-gray-800">Laporan Penjualan</h3>
+                </div>
+                <div className="p-4 md:p-6">
+                    <div className="text-center text-gray-500 py-8">
+                        <FontAwesomeIcon icon={faFileAlt} className="text-2xl mb-2" />
+                        <p>Belum ada data laporan</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+
+    // === NEW PAGE RENDERS ===
+
+    // TRANSAKSI & PENJUALAN
+    const renderHistoryTransaksi = () => (
+        <div className="page">
+            <div className="mb-6">
+                <h2 className="text-2xl font-bold text-gray-800">History Transaksi</h2>
+                <p className="text-gray-600">Riwayat semua transaksi penjualan</p>
+            </div>
+            <div className="bg-white rounded-xl shadow p-6">
+                <div className="text-center text-gray-500 py-8">
+                    <FontAwesomeIcon icon={faHistory} className="text-4xl mb-2" />
+                    <p>Belum ada history transaksi</p>
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderReturnBarang = () => (
+        <div className="page">
+            <div className="mb-6">
+                <h2 className="text-2xl font-bold text-gray-800">Return Barang</h2>
+                <p className="text-gray-600">Kelola pengembalian dan retur produk</p>
+            </div>
+            <div className="bg-white rounded-xl shadow p-6">
+                <div className="text-center text-gray-500 py-8">
+                    <FontAwesomeIcon icon={faUndo} className="text-4xl mb-2" />
+                    <p>Belum ada return barang</p>
+                </div>
+            </div>
+        </div>
+    );
+
+    // MANAJEMEN PRODUK
+    const renderUpdateStok = () => (
+        <div className="page">
+            <div className="mb-6">
+                <h2 className="text-2xl font-bold text-gray-800">Update Stok</h2>
+                <p className="text-gray-600">Kelola stok masuk dan keluar produk</p>
+            </div>
+            <div className="bg-white rounded-xl shadow p-6">
+                <div className="text-center text-gray-500 py-8">
+                    <FontAwesomeIcon icon={faWarehouse} className="text-4xl mb-2" />
+                    <p>Halaman update stok</p>
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderKategoriProduk = () => (
+        <div className="page">
+            <div className="mb-6">
+                <h2 className="text-2xl font-bold text-gray-800">Kategori Produk</h2>
+                <p className="text-gray-600">Kelola kategori produk</p>
+            </div>
+            <div className="bg-white rounded-xl shadow p-6">
+                <div className="mb-4">
+                    <h3 className="text-lg font-semibold mb-3">Daftar Kategori</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {kategoriData.map((kategori, index) => (
+                            <div key={index} className="border border-gray-300 rounded-lg p-4 flex justify-between items-center">
+                                <div className="flex items-center">
+                                    <FontAwesomeIcon icon={faTags} className="text-primary mr-3" />
+                                    <span className="font-medium">{kategori}</span>
+                                </div>
+                                <button className="text-blue-500 hover:text-blue-700">
+                                    <FontAwesomeIcon icon={faEdit} />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderPromoDiskon = () => (
+        <div className="page">
+            <div className="mb-6">
+                <h2 className="text-2xl font-bold text-gray-800">Promo & Diskon</h2>
+                <p className="text-gray-600">Kelola promosi dan diskon produk</p>
+            </div>
+            <div className="bg-white rounded-xl shadow p-6">
+                <div className="text-center text-gray-500 py-8">
+                    <FontAwesomeIcon icon={faPercent} className="text-4xl mb-2" />
+                    <p>Belum ada promo atau diskon aktif</p>
+                </div>
+            </div>
+        </div>
+    );
+
+    // MANAJEMEN PELANGGAN
+    const renderDaftarPelanggan = () => (
+        <div className="page">
+            <div className="mb-6">
+                <h2 className="text-2xl font-bold text-gray-800">Daftar Pelanggan</h2>
+                <p className="text-gray-600">Kelola data pelanggan</p>
+            </div>
+            <div className="bg-white rounded-xl shadow">
+                <div className="p-6 border-b border-gray-300">
+                    <button className="bg-primary hover:bg-primary-dark text-white px-4 py-2 rounded-lg">
+                        <FontAwesomeIcon icon={faUserPlus} className="mr-2" /> Tambah Pelanggan
+                    </button>
+                </div>
+                <div className="p-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {pelangganData.map((pelanggan) => (
+                            <div key={pelanggan.id} className="border border-gray-300 rounded-lg p-4">
+                                <div className="flex items-start justify-between mb-2">
+                                    <h3 className="font-bold text-lg">{pelanggan.nama}</h3>
+                                    <span className={`px-2 py-1 rounded-full text-xs ${
+                                        pelanggan.tipe === 'gold' ? 'bg-yellow-100 text-yellow-800' :
+                                        pelanggan.tipe === 'premium' ? 'bg-blue-100 text-blue-800' :
+                                        'bg-gray-100 text-gray-800'
+                                    }`}>
+                                        {pelanggan.tipe.toUpperCase()}
+                                    </span>
+                                </div>
+                                <div className="text-sm text-gray-600">
+                                    <p>Diskon: {pelanggan.diskon}%</p>
+                                    <p>Poin: {pelanggan.poin}</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderSistemPoin = () => (
+        <div className="page">
+            <div className="mb-6">
+                <h2 className="text-2xl font-bold text-gray-800">Sistem Poin Loyalitas</h2>
+                <p className="text-gray-600">Kelola program loyalitas pelanggan</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                <div className="bg-white rounded-xl shadow p-6">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="text-gray-500 text-sm">Total Poin Diberikan</p>
+                            <h3 className="text-2xl font-bold text-gray-800 mt-1">
+                                {pelangganData.reduce((sum, p) => sum + p.poin, 0)}
+                            </h3>
+                        </div>
+                        <FontAwesomeIcon icon={faStar} className="text-4xl text-yellow-500" />
+                    </div>
+                </div>
+                <div className="bg-white rounded-xl shadow p-6">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="text-gray-500 text-sm">Pelanggan Premium</p>
+                            <h3 className="text-2xl font-bold text-gray-800 mt-1">
+                                {pelangganData.filter(p => p.tipe === 'premium' || p.tipe === 'gold').length}
+                            </h3>
+                        </div>
+                        <FontAwesomeIcon icon={faUsers} className="text-4xl text-blue-500" />
+                    </div>
+                </div>
+                <div className="bg-white rounded-xl shadow p-6">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="text-gray-500 text-sm">Rate Konversi</p>
+                            <h3 className="text-2xl font-bold text-gray-800 mt-1">1:1000</h3>
+                        </div>
+                        <FontAwesomeIcon icon={faCoins} className="text-4xl text-green-500" />
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderDiskonPelanggan = () => (
+        <div className="page">
+            <div className="mb-6">
+                <h2 className="text-2xl font-bold text-gray-800">Diskon Pelanggan</h2>
+                <p className="text-gray-600">Kelola diskon berdasarkan tipe pelanggan</p>
+            </div>
+            <div className="bg-white rounded-xl shadow p-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="border-2 border-gray-300 rounded-lg p-6 text-center">
+                        <div className="bg-gray-100 rounded-full w-16 h-16 mx-auto mb-3 flex items-center justify-center">
+                            <FontAwesomeIcon icon={faUsers} className="text-2xl text-gray-600" />
+                        </div>
+                        <h3 className="font-bold text-lg mb-2">Reguler</h3>
+                        <p className="text-3xl font-bold text-primary mb-2">0%</p>
+                        <p className="text-sm text-gray-600">Diskon dasar</p>
+                    </div>
+                    <div className="border-2 border-blue-300 rounded-lg p-6 text-center bg-blue-50">
+                        <div className="bg-blue-100 rounded-full w-16 h-16 mx-auto mb-3 flex items-center justify-center">
+                            <FontAwesomeIcon icon={faUserTag} className="text-2xl text-blue-600" />
+                        </div>
+                        <h3 className="font-bold text-lg mb-2">Premium</h3>
+                        <p className="text-3xl font-bold text-blue-600 mb-2">10%</p>
+                        <p className="text-sm text-gray-600">Belanja &gt; 1 juta/bulan</p>
+                    </div>
+                    <div className="border-2 border-yellow-300 rounded-lg p-6 text-center bg-yellow-50">
+                        <div className="bg-yellow-100 rounded-full w-16 h-16 mx-auto mb-3 flex items-center justify-center">
+                            <FontAwesomeIcon icon={faStar} className="text-2xl text-yellow-600" />
+                        </div>
+                        <h3 className="font-bold text-lg mb-2">Gold</h3>
+                        <p className="text-3xl font-bold text-yellow-600 mb-2">15%</p>
+                        <p className="text-sm text-gray-600">Belanja &gt; 5 juta/bulan</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+
+    // LAPORAN & ANALISIS
+    const renderLaporanPembelian = () => (
+        <div className="page">
+            <div className="mb-6">
+                <h2 className="text-2xl font-bold text-gray-800">Laporan Pembelian</h2>
+                <p className="text-gray-600">Laporan pembelian dan stok masuk</p>
+            </div>
+            <div className="bg-white rounded-xl shadow p-6">
+                <div className="text-center text-gray-500 py-8">
+                    <FontAwesomeIcon icon={faShoppingBasket} className="text-4xl mb-2" />
+                    <p>Belum ada data pembelian</p>
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderLabaRugi = () => (
+        <div className="page">
+            <div className="mb-6">
+                <h2 className="text-2xl font-bold text-gray-800">Laporan Laba Rugi</h2>
+                <p className="text-gray-600">Analisis keuntungan dan kerugian</p>
+            </div>
+            <div className="bg-white rounded-xl shadow p-6">
+                <div className="text-center text-gray-500 py-8">
+                    <FontAwesomeIcon icon={faChartPie} className="text-4xl mb-2" />
+                    <p>Belum ada data laba rugi</p>
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderLaporanKas = () => (
+        <div className="page">
+            <div className="mb-6">
+                <h2 className="text-2xl font-bold text-gray-800">Laporan Kas</h2>
+                <p className="text-gray-600">Arus kas masuk dan keluar</p>
+            </div>
+            <div className="bg-white rounded-xl shadow p-6">
+                <div className="text-center text-gray-500 py-8">
+                    <FontAwesomeIcon icon={faWallet} className="text-4xl mb-2" />
+                    <p>Belum ada data kas</p>
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderHutangPiutang = () => (
+        <div className="page">
+            <div className="mb-6">
+                <h2 className="text-2xl font-bold text-gray-800">Hutang & Piutang</h2>
+                <p className="text-gray-600">Kelola piutang pelanggan dan hutang supplier</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-white rounded-xl shadow p-6">
+                    <h3 className="text-lg font-semibold mb-4 flex items-center">
+                        <FontAwesomeIcon icon={faHandHoldingUsd} className="mr-2 text-green-500" />
+                        Piutang
+                    </h3>
+                    <div className="text-center text-gray-500 py-8">
+                        <p>Belum ada piutang</p>
+                    </div>
+                </div>
+                <div className="bg-white rounded-xl shadow p-6">
+                    <h3 className="text-lg font-semibold mb-4 flex items-center">
+                        <FontAwesomeIcon icon={faMoneyBillWave} className="mr-2 text-red-500" />
+                        Hutang
+                    </h3>
+                    <div className="text-center text-gray-500 py-8">
+                        <p>Belum ada hutang</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderLaporanPelanggan = () => (
+        <div className="page">
+            <div className="mb-6">
+                <h2 className="text-2xl font-bold text-gray-800">Laporan Pelanggan</h2>
+                <p className="text-gray-600">Analisis perilaku dan statistik pelanggan</p>
+            </div>
+            <div className="bg-white rounded-xl shadow p-6">
+                <div className="text-center text-gray-500 py-8">
+                    <FontAwesomeIcon icon={faUserFriends} className="text-4xl mb-2" />
+                    <p>Belum ada analisis pelanggan</p>
+                </div>
+            </div>
+        </div>
+    );
+
+    return (
+        <div className="min-h-screen bg-gray-50 role-staff">
+            {/* Mobile Header */}
+            <div className="mobile-header bg-white shadow-sm p-4 md:hidden">
+                <div className="flex justify-between items-center">
+                    <div className="flex items-center">
+                        <FontAwesomeIcon icon={faLeaf} className="text-primary text-2xl mr-3" />
+                        <h1 className="text-xl font-bold text-gray-800">FreshVeggies</h1>
+                    </div>
+                    <div className="flex items-center space-x-3">
+                        <span className="text-sm bg-primary text-white px-2 py-1 rounded">Staff</span>
+                        <button onClick={toggleMobileMenu} className="text-gray-600">
+                            <FontAwesomeIcon icon={faBars} className="text-xl" />
+                        </button>
+                    </div>
+                </div>
+
+                {/* Mobile Navigation Menu */}
+                {mobileMenuOpen && (
+                    <div className="mt-4 bg-white rounded-lg shadow-lg p-4">
+                        <div className="grid grid-cols-2 gap-3">
+                            <button
+                                onClick={() => showPage('dashboard-page')}
+                                className="flex flex-col items-center justify-center p-3 bg-primary text-white rounded-lg transition-colors"
+                            >
+                                <FontAwesomeIcon icon={faChartLine} className="text-lg mb-1" />
+                                <span className="text-xs font-medium">Dashboard</span>
+                            </button>
+                            <button
+                                onClick={() => showPage('input-barang')}
+                                className="flex flex-col items-center justify-center p-3 bg-gray-100 hover:bg-primary hover:text-white rounded-lg transition-colors"
+                            >
+                                <FontAwesomeIcon icon={faPlusCircle} className="text-lg mb-1" />
+                                <span className="text-xs font-medium">Input Barang</span>
+                            </button>
+                            <button
+                                onClick={() => showPage('transaksi')}
+                                className="flex flex-col items-center justify-center p-3 bg-gray-100 hover:bg-primary hover:text-white rounded-lg transition-colors"
+                            >
+                                <FontAwesomeIcon icon={faShoppingCart} className="text-lg mb-1" />
+                                <span className="text-xs font-medium">Transaksi</span>
+                            </button>
+                            <button
+                                onClick={() => showPage('produk')}
+                                className="flex flex-col items-center justify-center p-3 bg-gray-100 hover:bg-primary hover:text-white rounded-lg transition-colors"
+                            >
+                                <FontAwesomeIcon icon={faList} className="text-lg mb-1" />
+                                <span className="text-xs font-medium">Produk</span>
+                            </button>
+                            <button
+                                onClick={() => showPage('laporan')}
+                                className="flex flex-col items-center justify-center p-3 bg-gray-100 hover:bg-primary hover:text-white rounded-lg transition-colors"
+                            >
+                                <FontAwesomeIcon icon={faFileAlt} className="text-lg mb-1" />
+                                <span className="text-xs font-medium">Laporan</span>
+                            </button>
+                            <button className="flex flex-col items-center justify-center p-3 bg-red-100 hover:bg-primary hover:text-white rounded-lg transition-colors">
+                                <FontAwesomeIcon icon={faSignOutAlt} className="text-lg mb-1" />
+                                <span className="text-xs font-medium">Logout</span>
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* Desktop Header */}
+            <header className="desktop-header bg-white shadow-sm hidden md:block">
+                <div className="flex justify-between items-center px-6 py-4">
+                    <div className="flex items-center">
+                        <FontAwesomeIcon icon={faLeaf} className="text-primary text-2xl mr-3" />
+                        <h1 className="text-xl font-bold text-gray-800">FreshVeggies</h1>
+                    </div>
+                    <div className="flex items-center space-x-4">
+                        <div className="relative">
+                            <button onClick={toggleNotifDropdown} className="relative p-2 text-gray-600 hover:text-primary">
+                                <FontAwesomeIcon icon={faBell} className="text-xl" />
+                                <span className="absolute -top-1 -right-1 bg-primary text-white rounded-full w-5 h-5 text-xs flex items-center justify-center">
+                                    0
+                                </span>
+                            </button>
+
+                            {notifDropdownOpen && (
+                                <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg z-50 border border-gray-300">
+                                    <div className="p-4 border-b border-gray-300">
+                                        <h3 className="font-semibold text-gray-800">Produk Mendekati Kadaluarsa</h3>
+                                    </div>
+                                    <div className="max-h-64 overflow-y-auto">
+                                        <div className="p-2">
+                                            {/* Notifications content */}
+                                        </div>
+                                    </div>
+                                    <div className="p-2 border-t border-gray-300 text-center">
+                                        <button onClick={toggleNotifDropdown} className="text-sm text-primary hover:underline">
+                                            Tutup
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                        <div className="flex items-center space-x-2">
+                            <span className="text-gray-700">Halo, Pengguna</span>
+                            <span className="bg-primary text-white px-2 py-1 rounded text-sm">Staff</span>
+                            <button className="text-gray-600 hover:text-red-500">
+                                <FontAwesomeIcon icon={faSignOutAlt} />
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <div className="flex flex-col md:flex-row min-h-screen">
+                {/* Desktop Sidebar */}
+                <aside className="desktop-menu w-72 bg-primary-dark text-white hidden md:block overflow-y-auto">
+                    <nav className="p-4 space-y-1">
+                        {/* Dashboard */}
+                        <button
+                            onClick={() => showPage('dashboard-page')}
+                            className={`w-full text-left flex items-center px-4 py-3 rounded-lg font-medium transition-all ${
+                                currentPage === 'dashboard-page' ? 'bg-primary shadow-lg' : 'hover:bg-primary/50'
+                            }`}
+                        >
+                            <FontAwesomeIcon icon={faChartLine} className="mr-3 w-5" />
+                            <span>Dashboard</span>
+                        </button>
+
+                        {/* TRANSAKSI & PENJUALAN */}
+                        <div className="mt-3">
+                            <button
+                                onClick={() => toggleMenuSection('transaksi')}
+                                className="w-full text-left flex items-center justify-between px-4 py-3 rounded-lg font-semibold hover:bg-primary/30 transition-all"
+                            >
+                                <div className="flex items-center">
+                                    <FontAwesomeIcon icon={faShoppingCart} className="mr-3 w-5" />
+                                    <span className="text-sm uppercase tracking-wide">Transaksi & Penjualan</span>
+                                </div>
+                                <FontAwesomeIcon
+                                    icon={menuOpen.transaksi ? faChevronDown : faChevronRight}
+                                    className="text-xs"
+                                />
+                            </button>
+                            <div className={`menu-dropdown ${menuOpen.transaksi ? 'open' : 'closed'}`}>
+                                <div className="ml-4 mt-1 space-y-1 border-l-2 border-primary/30 pl-3">
+                                    <button
+                                        onClick={() => showPage('transaksi')}
+                                        className={`w-full text-left flex items-center px-3 py-2 rounded-lg text-sm transition-all ${
+                                            currentPage === 'transaksi' ? 'bg-primary shadow-md' : 'hover:bg-primary/40'
+                                        }`}
+                                    >
+                                        <FontAwesomeIcon icon={faShoppingCart} className="mr-3 w-4 text-xs" />
+                                        <span>Transaksi Penjualan</span>
+                                    </button>
+                                    <button
+                                        onClick={() => showPage('history-transaksi')}
+                                        className={`w-full text-left flex items-center px-3 py-2 rounded-lg text-sm transition-all ${
+                                            currentPage === 'history-transaksi' ? 'bg-primary shadow-md' : 'hover:bg-primary/40'
+                                        }`}
+                                    >
+                                        <FontAwesomeIcon icon={faHistory} className="mr-3 w-4 text-xs" />
+                                        <span>History Transaksi</span>
+                                    </button>
+                                    <button
+                                        onClick={() => showPage('return-barang')}
+                                        className={`w-full text-left flex items-center px-3 py-2 rounded-lg text-sm transition-all ${
+                                            currentPage === 'return-barang' ? 'bg-primary shadow-md' : 'hover:bg-primary/40'
+                                        }`}
+                                    >
+                                        <FontAwesomeIcon icon={faUndo} className="mr-3 w-4 text-xs" />
+                                        <span>Return Barang</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* MANAJEMEN PRODUK */}
+                        <div className="mt-2">
+                            <button
+                                onClick={() => toggleMenuSection('produk')}
+                                className="w-full text-left flex items-center justify-between px-4 py-3 rounded-lg font-semibold hover:bg-primary/30 transition-all"
+                            >
+                                <div className="flex items-center">
+                                    <FontAwesomeIcon icon={faBoxOpen} className="mr-3 w-5" />
+                                    <span className="text-sm uppercase tracking-wide">Manajemen Produk</span>
+                                </div>
+                                <FontAwesomeIcon
+                                    icon={menuOpen.produk ? faChevronDown : faChevronRight}
+                                    className="text-xs"
+                                />
+                            </button>
+                            <div className={`menu-dropdown ${menuOpen.produk ? 'open' : 'closed'}`}>
+                                <div className="ml-4 mt-1 space-y-1 border-l-2 border-primary/30 pl-3">
+                                    <button
+                                        onClick={() => showPage('input-barang')}
+                                        className={`w-full text-left flex items-center px-3 py-2 rounded-lg text-sm transition-all ${
+                                            currentPage === 'input-barang' ? 'bg-primary shadow-md' : 'hover:bg-primary/40'
+                                        }`}
+                                    >
+                                        <FontAwesomeIcon icon={faPlusCircle} className="mr-3 w-4 text-xs" />
+                                        <span>Input Barang</span>
+                                    </button>
+                                    <button
+                                        onClick={() => showPage('produk')}
+                                        className={`w-full text-left flex items-center px-3 py-2 rounded-lg text-sm transition-all ${
+                                            currentPage === 'produk' ? 'bg-primary shadow-md' : 'hover:bg-primary/40'
+                                        }`}
+                                    >
+                                        <FontAwesomeIcon icon={faList} className="mr-3 w-4 text-xs" />
+                                        <span>Daftar Produk</span>
+                                    </button>
+                                    <button
+                                        onClick={() => showPage('update-stok')}
+                                        className={`w-full text-left flex items-center px-3 py-2 rounded-lg text-sm transition-all ${
+                                            currentPage === 'update-stok' ? 'bg-primary shadow-md' : 'hover:bg-primary/40'
+                                        }`}
+                                    >
+                                        <FontAwesomeIcon icon={faWarehouse} className="mr-3 w-4 text-xs" />
+                                        <span>Update Stok</span>
+                                    </button>
+                                    <button
+                                        onClick={() => showPage('kategori-produk')}
+                                        className={`w-full text-left flex items-center px-3 py-2 rounded-lg text-sm transition-all ${
+                                            currentPage === 'kategori-produk' ? 'bg-primary shadow-md' : 'hover:bg-primary/40'
+                                        }`}
+                                    >
+                                        <FontAwesomeIcon icon={faTags} className="mr-3 w-4 text-xs" />
+                                        <span>Kategori Produk</span>
+                                    </button>
+                                    <button
+                                        onClick={() => showPage('promo-diskon')}
+                                        className={`w-full text-left flex items-center px-3 py-2 rounded-lg text-sm transition-all ${
+                                            currentPage === 'promo-diskon' ? 'bg-primary shadow-md' : 'hover:bg-primary/40'
+                                        }`}
+                                    >
+                                        <FontAwesomeIcon icon={faPercent} className="mr-3 w-4 text-xs" />
+                                        <span>Promo & Diskon</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* MANAJEMEN PELANGGAN */}
+                        <div className="mt-2">
+                            <button
+                                onClick={() => toggleMenuSection('pelanggan')}
+                                className="w-full text-left flex items-center justify-between px-4 py-3 rounded-lg font-semibold hover:bg-primary/30 transition-all"
+                            >
+                                <div className="flex items-center">
+                                    <FontAwesomeIcon icon={faUsers} className="mr-3 w-5" />
+                                    <span className="text-sm uppercase tracking-wide">Manajemen Pelanggan</span>
+                                </div>
+                                <FontAwesomeIcon
+                                    icon={menuOpen.pelanggan ? faChevronDown : faChevronRight}
+                                    className="text-xs"
+                                />
+                            </button>
+                            <div className={`menu-dropdown ${menuOpen.pelanggan ? 'open' : 'closed'}`}>
+                                <div className="ml-4 mt-1 space-y-1 border-l-2 border-primary/30 pl-3">
+                                    <button
+                                        onClick={() => showPage('daftar-pelanggan')}
+                                        className={`w-full text-left flex items-center px-3 py-2 rounded-lg text-sm transition-all ${
+                                            currentPage === 'daftar-pelanggan' ? 'bg-primary shadow-md' : 'hover:bg-primary/40'
+                                        }`}
+                                    >
+                                        <FontAwesomeIcon icon={faUsers} className="mr-3 w-4 text-xs" />
+                                        <span>Daftar Pelanggan</span>
+                                    </button>
+                                    <button
+                                        onClick={() => showPage('sistem-poin')}
+                                        className={`w-full text-left flex items-center px-3 py-2 rounded-lg text-sm transition-all ${
+                                            currentPage === 'sistem-poin' ? 'bg-primary shadow-md' : 'hover:bg-primary/40'
+                                        }`}
+                                    >
+                                        <FontAwesomeIcon icon={faStar} className="mr-3 w-4 text-xs" />
+                                        <span>Sistem Poin</span>
+                                    </button>
+                                    <button
+                                        onClick={() => showPage('diskon-pelanggan')}
+                                        className={`w-full text-left flex items-center px-3 py-2 rounded-lg text-sm transition-all ${
+                                            currentPage === 'diskon-pelanggan' ? 'bg-primary shadow-md' : 'hover:bg-primary/40'
+                                        }`}
+                                    >
+                                        <FontAwesomeIcon icon={faUserTag} className="mr-3 w-4 text-xs" />
+                                        <span>Diskon Pelanggan</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* LAPORAN & ANALISIS */}
+                        <div className="mt-2">
+                            <button
+                                onClick={() => toggleMenuSection('laporan')}
+                                className="w-full text-left flex items-center justify-between px-4 py-3 rounded-lg font-semibold hover:bg-primary/30 transition-all"
+                            >
+                                <div className="flex items-center">
+                                    <FontAwesomeIcon icon={faChartBar} className="mr-3 w-5" />
+                                    <span className="text-sm uppercase tracking-wide">Laporan & Analisis</span>
+                                </div>
+                                <FontAwesomeIcon
+                                    icon={menuOpen.laporan ? faChevronDown : faChevronRight}
+                                    className="text-xs"
+                                />
+                            </button>
+                            <div className={`menu-dropdown ${menuOpen.laporan ? 'open' : 'closed'}`}>
+                                <div className="ml-4 mt-1 space-y-1 border-l-2 border-primary/30 pl-3">
+                                    <button
+                                        onClick={() => showPage('laporan')}
+                                        className={`w-full text-left flex items-center px-3 py-2 rounded-lg text-sm transition-all ${
+                                            currentPage === 'laporan' ? 'bg-primary shadow-md' : 'hover:bg-primary/40'
+                                        }`}
+                                    >
+                                        <FontAwesomeIcon icon={faChartLine} className="mr-3 w-4 text-xs" />
+                                        <span>Laporan Penjualan</span>
+                                    </button>
+                                    <button
+                                        onClick={() => showPage('laporan-pembelian')}
+                                        className={`w-full text-left flex items-center px-3 py-2 rounded-lg text-sm transition-all ${
+                                            currentPage === 'laporan-pembelian' ? 'bg-primary shadow-md' : 'hover:bg-primary/40'
+                                        }`}
+                                    >
+                                        <FontAwesomeIcon icon={faShoppingBasket} className="mr-3 w-4 text-xs" />
+                                        <span>Laporan Pembelian</span>
+                                    </button>
+                                    <button
+                                        onClick={() => showPage('laba-rugi')}
+                                        className={`w-full text-left flex items-center px-3 py-2 rounded-lg text-sm transition-all ${
+                                            currentPage === 'laba-rugi' ? 'bg-primary shadow-md' : 'hover:bg-primary/40'
+                                        }`}
+                                    >
+                                        <FontAwesomeIcon icon={faChartPie} className="mr-3 w-4 text-xs" />
+                                        <span>Laba Rugi</span>
+                                    </button>
+                                    <button
+                                        onClick={() => showPage('laporan-kas')}
+                                        className={`w-full text-left flex items-center px-3 py-2 rounded-lg text-sm transition-all ${
+                                            currentPage === 'laporan-kas' ? 'bg-primary shadow-md' : 'hover:bg-primary/40'
+                                        }`}
+                                    >
+                                        <FontAwesomeIcon icon={faWallet} className="mr-3 w-4 text-xs" />
+                                        <span>Laporan Kas</span>
+                                    </button>
+                                    <button
+                                        onClick={() => showPage('hutang-piutang')}
+                                        className={`w-full text-left flex items-center px-3 py-2 rounded-lg text-sm transition-all ${
+                                            currentPage === 'hutang-piutang' ? 'bg-primary shadow-md' : 'hover:bg-primary/40'
+                                        }`}
+                                    >
+                                        <FontAwesomeIcon icon={faHandHoldingUsd} className="mr-3 w-4 text-xs" />
+                                        <span>Hutang & Piutang</span>
+                                    </button>
+                                    <button
+                                        onClick={() => showPage('laporan-pelanggan')}
+                                        className={`w-full text-left flex items-center px-3 py-2 rounded-lg text-sm transition-all ${
+                                            currentPage === 'laporan-pelanggan' ? 'bg-primary shadow-md' : 'hover:bg-primary/40'
+                                        }`}
+                                    >
+                                        <FontAwesomeIcon icon={faUserFriends} className="mr-3 w-4 text-xs" />
+                                        <span>Laporan Pelanggan</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </nav>
+                </aside>
+
+                {/* Main Content */}
+                <main className="main-content flex-1 p-4 md:p-6">
+                    {currentPage === 'dashboard-page' && renderDashboard()}
+
+                    {/* Transaksi & Penjualan */}
+                    {currentPage === 'transaksi' && renderTransaksi()}
+                    {currentPage === 'history-transaksi' && renderHistoryTransaksi()}
+                    {currentPage === 'return-barang' && renderReturnBarang()}
+
+                    {/* Manajemen Produk */}
+                    {currentPage === 'input-barang' && renderInputBarang()}
+                    {currentPage === 'produk' && renderProduk()}
+                    {currentPage === 'update-stok' && renderUpdateStok()}
+                    {currentPage === 'kategori-produk' && renderKategoriProduk()}
+                    {currentPage === 'promo-diskon' && renderPromoDiskon()}
+
+                    {/* Manajemen Pelanggan */}
+                    {currentPage === 'daftar-pelanggan' && renderDaftarPelanggan()}
+                    {currentPage === 'sistem-poin' && renderSistemPoin()}
+                    {currentPage === 'diskon-pelanggan' && renderDiskonPelanggan()}
+
+                    {/* Laporan & Analisis */}
+                    {currentPage === 'laporan' && renderLaporan()}
+                    {currentPage === 'laporan-pembelian' && renderLaporanPembelian()}
+                    {currentPage === 'laba-rugi' && renderLabaRugi()}
+                    {currentPage === 'laporan-kas' && renderLaporanKas()}
+                    {currentPage === 'hutang-piutang' && renderHutangPiutang()}
+                    {currentPage === 'laporan-pelanggan' && renderLaporanPelanggan()}
+                </main>
+            </div>
+
+            {/* Mobile Bottom Navigation */}
+            <div className="mobile-bottom-nav md:hidden">
+                <div className="flex justify-around">
+                    <button
+                        onClick={() => showPage('dashboard-page')}
+                        className={`flex flex-col items-center ${currentPage === 'dashboard-page' ? 'text-primary' : 'text-gray-600'
+                            }`}
+                    >
+                        <FontAwesomeIcon icon={faChartLine} className="mb-1" />
+                        <span className="text-xs">Dashboard</span>
+                    </button>
+                    <button
+                        onClick={() => showPage('transaksi')}
+                        className={`flex flex-col items-center ${currentPage === 'transaksi' ? 'text-primary' : 'text-gray-600'
+                            }`}
+                    >
+                        <FontAwesomeIcon icon={faShoppingCart} className="mb-1" />
+                        <span className="text-xs">Transaksi</span>
+                    </button>
+                    <button
+                        onClick={() => showPage('produk')}
+                        className={`flex flex-col items-center ${currentPage === 'produk' ? 'text-primary' : 'text-gray-600'
+                            }`}
+                    >
+                        <FontAwesomeIcon icon={faBoxOpen} className="mb-1" />
+                        <span className="text-xs">Produk</span>
+                    </button>
+                    <button
+                        onClick={() => showPage('laporan')}
+                        className={`flex flex-col items-center ${currentPage === 'laporan' ? 'text-primary' : 'text-gray-600'
+                            }`}
+                    >
+                        <FontAwesomeIcon icon={faFileAlt} className="mb-1" />
+                        <span className="text-xs">Laporan</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export default App;
