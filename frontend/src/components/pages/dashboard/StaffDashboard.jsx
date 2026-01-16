@@ -289,8 +289,12 @@ const DashboardStaff = ({ onNavigate }) => {
     'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
   ];
 
-  // Generate tahun options (3 tahun terakhir)
-  const yearOptions = [2022, 2023, 2024, 2025];
+  // Generate tahun options (3 tahun sebelumnya dan 3 tahun ke depan)
+  const currentYear = new Date().getFullYear();
+  const yearOptions = [];
+  for (let year = currentYear - 3; year <= currentYear + 3; year++) {
+    yearOptions.push(year);
+  }
 
   // TAMBAHAN: Fungsi untuk export ke PDF (hanya tabel Laporan Harian) - FIXED VERSION
   const exportToPDF = () => {
@@ -575,7 +579,7 @@ const DashboardStaff = ({ onNavigate }) => {
             </div>
             <div className="text-right">
               <p className={`text-sm font-bold ${stockColor}`}>
-                Stok: {produk.stok} {produk.satuan || 'pcs'}
+                Stok: {Number(produk.stok).toFixed(1)} {produk.satuan || 'pcs'}
               </p>
             </div>
           </div>

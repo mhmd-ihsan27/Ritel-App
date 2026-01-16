@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"ritel-app/internal/container"
 	"ritel-app/internal/http/response"
 	"ritel-app/internal/models"
@@ -31,6 +32,8 @@ func (h *SettingsHandler) UpdatePoinSettings(c *gin.Context) {
 		response.BadRequest(c, "Invalid request body", err)
 		return
 	}
+
+	fmt.Printf("[HTTP HANDLER] UpdatePoinSettings Request: %+v\n", req)
 
 	settings, err := h.services.SettingsService.UpdatePoinSettings(&req)
 	if err != nil {

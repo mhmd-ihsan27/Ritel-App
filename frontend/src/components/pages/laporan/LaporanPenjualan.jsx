@@ -42,6 +42,7 @@ import {
     Tooltip,
     Legend,
     ArcElement,
+    Filler,
 } from 'chart.js';
 import { Line, Doughnut, Bar } from 'react-chartjs-2';
 
@@ -59,7 +60,8 @@ ChartJS.register(
     Title,
     Tooltip,
     Legend,
-    ArcElement
+    ArcElement,
+    Filler
 );
 
 /**
@@ -70,7 +72,16 @@ ChartJS.register(
  * @param {function(number): string} props.formatRupiah - Fungsi untuk memformat angka menjadi mata uang Rupiah.
  * @param {string} props.userName - Nama pengguna yang sedang login.
  */
-const LaporanPenjualan = ({ formatRupiah, userName = "Admin" }) => {
+const LaporanPenjualan = ({
+    formatRupiah = (amount) => {
+        return new Intl.NumberFormat('id-ID', {
+            style: 'currency',
+            currency: 'IDR',
+            minimumFractionDigits: 0
+        }).format(amount);
+    },
+    userName = "Admin"
+}) => {
     // --- State Management ---
     const [currentTime, setCurrentTime] = useState(new Date());
     const [isLoading, setIsLoading] = useState(true);
@@ -407,7 +418,7 @@ const LaporanPenjualan = ({ formatRupiah, userName = "Admin" }) => {
                         </div>
                         <div className="text-right">
                             <p className="text-xs font-bold text-green-700">{formatRupiah(product.revenue)}</p>
-                            <p className="text-xs text-gray-500">{product.discountTransactions} diskon</p>
+
                         </div>
                     </div>
                 </div>
@@ -783,7 +794,7 @@ const LaporanPenjualan = ({ formatRupiah, userName = "Admin" }) => {
                                                 callbacks: {
                                                     label: (context) => {
                                                         const value = Math.round(context.parsed || context.raw || 0);
-                                                        const formattedValue = value.toLocaleString('id-ID') + '%';
+                                                        const formattedValue = formatRupiah(value);
                                                         return `${context.label}: ${formattedValue}`;
                                                     }
                                                 }
@@ -1042,17 +1053,6 @@ const LaporanPenjualan = ({ formatRupiah, userName = "Admin" }) => {
             </div>
         </div>
     );
-};
-
-LaporanPenjualan.defaultProps = {
-    formatRupiah: (amount) => {
-        return new Intl.NumberFormat('id-ID', {
-            style: 'currency',
-            currency: 'IDR',
-            minimumFractionDigits: 0
-        }).format(amount);
-    },
-    userName: "Admin"
 };
 
 export default LaporanPenjualan;

@@ -378,7 +378,7 @@ export default function HistoryTransaksi() {
                         </div>
                         <div class="info-row">
                             <span class="info-label">Tgl</span>
-                            <span>: ${formatDateForReceipt(transaction.transaksi.tanggal)}</span>
+                            <span>: ${formatDateForReceipt(transaction.transaksi.createdAt)}</span>
                         </div>
                         <div class="info-row">
                             <span class="info-label">Kasir</span>
@@ -400,7 +400,7 @@ export default function HistoryTransaksi() {
                             <div class="item-row">
                                 <div class="item-name">${item.produkNama}</div>
                                 <div class="item-detail">
-                                    <span>${item.jumlah} x ${formatRupiah(item.hargaSatuan).replace('Rp', 'Rp ')}</span>
+                                    <span>${item.beratGram > 0 ? `${Math.round(item.beratGram)}g` : `${item.jumlah} x ${formatRupiah(item.hargaSatuan).replace('Rp', 'Rp ')}`}</span>
                                     <span>${formatRupiah(item.subtotal).replace('Rp', 'Rp ')}</span>
                                 </div>
                             </div>
@@ -711,7 +711,7 @@ export default function HistoryTransaksi() {
                                                     {formatShortDate(transaction.tanggal)}
                                                 </div>
                                                 <div className="text-xs text-gray-400">
-                                                    {new Date(transaction.tanggal).toLocaleTimeString('id-ID', {
+                                                    {new Date(transaction.createdAt).toLocaleTimeString('id-ID', {
                                                         hour: '2-digit',
                                                         minute: '2-digit'
                                                     })}
@@ -881,7 +881,7 @@ export default function HistoryTransaksi() {
                                                 </div>
                                                 <div className="text-right">
                                                     <div className="text-sm text-gray-600">
-                                                        {item.jumlah} x {formatRupiah(item.hargaSatuan)}
+                                                        {item.beratGram > 0 ? `${Math.round(item.beratGram)}g` : `${item.jumlah} x ${formatRupiah(item.hargaSatuan)}`}
                                                     </div>
                                                     <div className="font-semibold text-green-600">{formatRupiah(item.subtotal)}</div>
                                                 </div>
@@ -1052,7 +1052,7 @@ export default function HistoryTransaksi() {
                                             <div key={index}>
                                                 <div className="font-semibold">{item.produkNama}</div>
                                                 <div className="flex justify-between text-gray-600">
-                                                    <span>{item.jumlah} x {formatRupiah(item.hargaSatuan).replace('Rp', 'Rp ')}</span>
+                                                    <span>{item.beratGram > 0 ? `${Math.round(item.beratGram)}g` : `${item.jumlah} x ${formatRupiah(item.hargaSatuan).replace('Rp', 'Rp ')}`}</span>
                                                     <span className="font-semibold">{formatRupiah(item.subtotal).replace('Rp', 'Rp ')}</span>
                                                 </div>
                                             </div>

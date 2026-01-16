@@ -2,8 +2,10 @@ package service
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
+	"ritel-app/internal/database"
 	"ritel-app/internal/models"
 	"ritel-app/internal/repository"
 )
@@ -55,7 +57,12 @@ func (s *TransaksiService) CreateTransaksi(req *models.CreateTransaksiRequest) (
 	poinDipakai := 0
 	diskonPoin := 0
 
-	if req.PelangganID > 0 {
+	// DEBUG: Log pelangganID value
+	fmt.Printf("[TRANSACTION SERVICE] DEBUG - PelangganID received: %d\n", req.PelangganID)
+
+	// PENTING: Support offline ID (negative values) dari SQLite dual-mode
+	// Jadi check != 0, bukan > 0
+	if req.PelangganID != 0 {
 		fmt.Printf("[TRANSACTION SERVICE] Processing registered customer ID: %d\n", req.PelangganID)
 		var err error
 		pelanggan, err = s.pelangganService.GetPelangganByID(req.PelangganID)
@@ -119,8 +126,8 @@ func (s *TransaksiService) CreateTransaksi(req *models.CreateTransaksiRequest) (
 
 	// 4. HITUNG TOTAL DISKON (PROMO + POIN)
 	// Diskon hanya dari promo dan poin, tidak ada diskon berdasarkan level pelanggan
-	totalDiskon := req.Diskon
-	diskonPelanggan := 0 // Tidak ada diskon level, hanya dari poin
+	totalDiskon := req.Diskon // Sudah include promo + poin dari frontend
+	diskonPelanggan := 0      // Tidak ada diskon level, hanya dari poin
 
 	fmt.Printf("[TRANSACTION SERVICE] Total discount: %d (promo + points)\n", totalDiskon)
 
@@ -161,8 +168,8 @@ func (s *TransaksiService) CreateTransaksi(req *models.CreateTransaksiRequest) (
 		Pembayaran:      req.Pembayaran,
 		PoinDitukar:     poinDipakai, // Gunakan poin yang sudah disesuaikan
 		Diskon:          totalDiskon,
-		DiskonPromo:     req.Diskon,       // Diskon promo dari frontend
-		DiskonPelanggan: diskonPelanggan,  // Diskon level pelanggan dari backend
+		DiskonPromo:     req.Diskon,      // Diskon promo dari frontend
+		DiskonPelanggan: diskonPelanggan, // Diskon level pelanggan dari backend
 		Catatan:         req.Catatan,
 		Kasir:           req.Kasir,
 		StaffID:         req.StaffID,
@@ -171,11 +178,34 @@ func (s *TransaksiService) CreateTransaksi(req *models.CreateTransaksiRequest) (
 
 	fmt.Printf("[TRANSACTION SERVICE] Creating transaction with StaffID: %d, StaffNama: %s\n", req.StaffID, req.StaffNama)
 
-	transaksiDetail, err := s.repo.Create(repoRequest)
-	if err != nil {
+	// Create transaction with retry mechanism for connection issues
+	var transaksiDetail *models.TransaksiDetail
+	var createErr error
+
+	for retry := 0; retry < 3; retry++ {
+		transaksiDetail, createErr = s.repo.Create(repoRequest)
+		if createErr == nil {
+			break
+		}
+
+		// Check if it's a connection error that needs retry
+		if strings.Contains(createErr.Error(), "connection was reset") ||
+			strings.Contains(createErr.Error(), "bad connection") ||
+			strings.Contains(createErr.Error(), "connection error") {
+			_ = database.ResetConnectionPool()
+			fmt.Printf("[TRANSACTION SERVICE] Connection error detected, retrying transaction (attempt %d)...\n", retry+2)
+			time.Sleep(time.Millisecond * 500 * time.Duration(retry+1))
+			continue
+		}
+
+		// If it's not a connection error, break immediately
+		break
+	}
+
+	if createErr != nil {
 		return &models.TransaksiResponse{
 			Success: false,
-			Message: fmt.Sprintf("Gagal membuat transaksi: %v", err),
+			Message: fmt.Sprintf("Gagal membuat transaksi: %v", createErr),
 		}, nil
 	}
 
@@ -183,7 +213,8 @@ func (s *TransaksiService) CreateTransaksi(req *models.CreateTransaksiRequest) (
 		transaksiDetail.Transaksi.NomorTransaksi)
 
 	// 7. UPDATE POIN PELANGGAN (JIKA REGISTERED CUSTOMER)
-	if req.PelangganID > 0 {
+	// Support offline IDs (negative values)
+	if req.PelangganID != 0 {
 		fmt.Printf("[TRANSACTION SERVICE] Updating customer points for ID: %d\n", req.PelangganID)
 
 		// Get current settings
@@ -199,20 +230,32 @@ func (s *TransaksiService) CreateTransaksi(req *models.CreateTransaksiRequest) (
 			}
 
 			// 7b. TAMBAH poin reward dari transaksi
+			// PENTING: Reward dihitung dari SUBTOTAL (nilai belanja aktual),
+			// BUKAN dari totalAkhir (setelah diskon poin).
+			// Alasan: Pelanggan harus dapat reward berdasarkan uang yang dihabiskan untuk produk,
+			// bukan berdasarkan berapa yang dibayar setelah pakai poin lama.
 			poinReward := 0
-			if totalAkhir >= settings.MinTransactionForPoints {
-				poinReward = totalAkhir / settings.MinTransactionForPoints
+			if subtotal >= settings.MinTransactionForPoints {
+				poinReward = subtotal / settings.MinTransactionForPoints
 			}
 
 			poinAkhir := poinSetelahPengurangan + poinReward
+
+			fmt.Printf("[TRANSACTION SERVICE] ✓ Point Calculation - Subtotal: %d, MinRequired: %d, Reward: %d | OldPoints: %d, Used: %d, Final: %d\n",
+				subtotal, settings.MinTransactionForPoints, poinReward, pelanggan.Poin, poinDipakai, poinAkhir)
 
 			// Update poin pelanggan
 			if err := s.pelangganService.UpdatePoin(req.PelangganID, poinAkhir); err != nil {
 				fmt.Printf("[WARNING] Failed to update customer points: %v\n", err)
 			}
 
-			fmt.Printf("[TRANSACTION SERVICE] Points update - Start: %d, Used: %d, Reward: %d, Final: %d\n",
-				pelanggan.Poin, poinDipakai, poinReward, poinAkhir)
+			// BARU: Update total transaksi dan total belanja
+			if err := s.pelangganService.IncrementStats(req.PelangganID, totalAkhir); err != nil {
+				fmt.Printf("[WARNING] Failed to update customer stats: %v\n", err)
+			}
+
+			fmt.Printf("[TRANSACTION SERVICE] Points and stats update - Start: %d, Used: %d, Reward: %d, Final: %d, Spend: %d\n",
+				pelanggan.Poin, poinDipakai, poinReward, poinAkhir, totalAkhir)
 		}
 	}
 
@@ -221,7 +264,8 @@ func (s *TransaksiService) CreateTransaksi(req *models.CreateTransaksiRequest) (
 	if poinDipakai > 0 {
 		message += fmt.Sprintf(". Poin digunakan: %d (Rp %d)", poinDipakai, diskonPoin)
 	}
-	if req.PelangganID > 0 {
+	// Support offline IDs (negative values)
+	if req.PelangganID != 0 {
 		// Info poin reward jika ada
 		settings, _ := s.settingsService.GetPoinSettings()
 		if settings != nil && totalAkhir >= settings.MinTransactionForPoints {
@@ -287,7 +331,8 @@ func (s *TransaksiService) validateCreateRequest(req *models.CreateTransaksiRequ
 	}
 
 	// Jika ada pelanggan, validasi poin vs pelanggan
-	if req.PelangganID > 0 && req.PoinDitukar > 0 {
+	// Support offline IDs (negative values)
+	if req.PelangganID != 0 && req.PoinDitukar > 0 {
 		// Note: Validasi detail akan dilakukan di proses utama
 		// Di sini hanya validasi dasar
 		if req.PoinDitukar > 0 && req.PelangganID == 0 {
@@ -311,7 +356,7 @@ func (s *TransaksiService) validateCreateRequest(req *models.CreateTransaksiRequ
 }
 
 // GetTransaksiByID retrieves a transaction by ID
-func (s *TransaksiService) GetTransaksiByID(id int) (*models.TransaksiDetail, error) {
+func (s *TransaksiService) GetTransaksiByID(id int64) (*models.TransaksiDetail, error) {
 	fmt.Printf("[SERVICE] GetTransaksiByID called with id: %d\n", id)
 	result, err := s.repo.GetByID(id)
 	if err != nil {
@@ -357,16 +402,18 @@ func (s *TransaksiService) GetTodayStats() (map[string]interface{}, error) {
 	}, nil
 }
 
-func (s *TransaksiService) GetTransaksiByPelangganID(pelangganID int) ([]*models.Transaksi, error) {
-	if pelangganID <= 0 {
+func (s *TransaksiService) GetTransaksiByPelangganID(pelangganID int64) ([]*models.Transaksi, error) {
+	// Support offline IDs
+	if pelangganID == 0 {
 		return nil, fmt.Errorf("pelanggan ID tidak valid")
 	}
 	return s.repo.GetByPelangganID(pelangganID)
 }
 
 // GetPelangganStats retrieves transaction statistics for a customer
-func (s *TransaksiService) GetPelangganStats(pelangganID int) (*models.PelangganStats, error) {
-	if pelangganID <= 0 {
+func (s *TransaksiService) GetPelangganStats(pelangganID int64) (*models.PelangganStats, error) {
+	// Support offline IDs
+	if pelangganID == 0 {
 		return nil, fmt.Errorf("pelanggan ID tidak valid")
 	}
 	return s.repo.GetStatsByPelangganID(pelangganID)

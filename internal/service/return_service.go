@@ -2,17 +2,18 @@ package service
 
 import (
 	"fmt"
+	"time"
+
 	"ritel-app/internal/models"
 	"ritel-app/internal/repository"
-	"time"
 )
 
 // ReturnService handles business logic for returns
 type ReturnService struct {
-	returnRepo     *repository.ReturnRepository
-	transaksiRepo  *repository.TransaksiRepository
-	produkService  *ProdukService
-	pelangganRepo  *repository.PelangganRepository
+	returnRepo    *repository.ReturnRepository
+	transaksiRepo *repository.TransaksiRepository
+	produkService *ProdukService
+	pelangganRepo *repository.PelangganRepository
 }
 
 // NewReturnService creates a new instance
@@ -54,7 +55,7 @@ func (s *ReturnService) CreateReturn(req *models.CreateReturnRequest) error {
 	if req.NoTransaksi != "" {
 		transaksi, err = s.transaksiRepo.GetByNomorTransaksi(req.NoTransaksi)
 	} else {
-		transaksi, err = s.transaksiRepo.GetByID(req.TransaksiID)
+		transaksi, err = s.transaksiRepo.GetByID(int64(req.TransaksiID))
 	}
 	if err != nil {
 		return fmt.Errorf("failed to get transaction: %w", err)
@@ -90,7 +91,7 @@ func (s *ReturnService) CreateReturn(req *models.CreateReturnRequest) error {
 		for _, item := range transaksi.Items {
 			if item.ProdukID != nil && *item.ProdukID == returnProduct.ProductID {
 				// Check if return quantity exceeds purchased quantity
-				alreadyReturned, err := s.returnRepo.GetReturnedQuantity(req.TransaksiID, returnProduct.ProductID)
+				alreadyReturned, err := s.returnRepo.GetReturnedQuantity(int(req.TransaksiID), returnProduct.ProductID)
 				if err != nil {
 					return fmt.Errorf("failed to check returned quantity: %w", err)
 				}
@@ -146,7 +147,7 @@ func (s *ReturnService) CreateReturn(req *models.CreateReturnRequest) error {
 
 	// Create return transaction
 	returnData := &models.Return{
-		TransaksiID:          req.TransaksiID,
+		TransaksiID:          int(req.TransaksiID),
 		NoTransaksi:          req.NoTransaksi,
 		ReturnDate:           returnDate,
 		Reason:               req.Reason,
@@ -176,15 +177,92 @@ func (s *ReturnService) CreateReturn(req *models.CreateReturnRequest) error {
 
 		// Restore stock if not damaged
 		if req.Reason != "damaged" {
-			stockReq := &models.UpdateStokRequest{
-				ProdukID:   product.ProductID,
-				Perubahan:  float64(product.Quantity), // Positive = increase
-				Jenis:      "return",
-				Keterangan: fmt.Sprintf("Return dari transaksi %s - alasan: %s", req.NoTransaksi, req.Reason),
+			// Get batch usage data from transaction
+			transaksiBatchRepo := repository.NewTransaksiBatchRepository()
+
+			batchUsages, err := transaksiBatchRepo.GetByTransaksiID(int(req.TransaksiID))
+			if err != nil {
 			}
-			if err := s.produkService.UpdateStokIncrement(stockReq); err != nil {
+
+			// Filter batches for this product
+			productBatches := []*models.TransaksiBatch{}
+			for _, bu := range batchUsages {
+				if bu.ProdukID == product.ProductID {
+					productBatches = append(productBatches, bu)
+				}
+			}
+
+			for _, bu := range batchUsages {
+				if bu.ProdukID == product.ProductID {
+					productBatches = append(productBatches, bu)
+				}
+			}
+
+			// Restore to batches if tracking data exists
+			// Calculate actual qty to restore from batch records (already in kg for curah)
+			var totalBatchQty float64
+			for _, bu := range productBatches {
+				totalBatchQty += bu.QtyDiambil
+			}
+
+			if len(productBatches) > 0 {
+				batchRepo := repository.NewBatchRepository()
+				// Use product.Quantity for non-curah, but limit by what was actually taken from batches
+				returnQty := float64(product.Quantity)
+				if totalBatchQty < returnQty {
+					// If batch records show less qty, use that (more accurate)
+					returnQty = totalBatchQty
+				}
+				remainingReturn := returnQty
+
+				// Restore in LIFO order (last batch used first)
+				for i := len(productBatches) - 1; i >= 0 && remainingReturn > 0; i-- {
+					batchUsage := productBatches[i]
+
+					// Restore max qty that was taken from this batch
+					restoreQty := remainingReturn
+					if restoreQty > batchUsage.QtyDiambil {
+						restoreQty = batchUsage.QtyDiambil
+					}
+
+					// Restore to batch
+					if err := batchRepo.RestoreQty(batchUsage.BatchID, restoreQty); err != nil {
+						continue
+					}
+
+					remainingReturn -= restoreQty
+				}
+			} else {
+			}
+
+			// Always update product stock (regardless of batch tracking)
+			produk, err := s.produkService.produkRepo.GetByID(product.ProductID)
+			if err != nil {
+				return fmt.Errorf("failed to get product: %w", err)
+			}
+
+			// Use batch qty if available (more accurate for curah), otherwise use quantity
+			stockToRestore := float64(product.Quantity)
+			if totalBatchQty > 0 {
+				stockToRestore = totalBatchQty
+			}
+
+			newStock := produk.Stok + stockToRestore
+			if err := s.produkService.produkRepo.UpdateStok(product.ProductID, newStock); err != nil {
 				return fmt.Errorf("failed to restore stock: %w", err)
 			}
+
+			// Record history
+			history := &models.StokHistory{
+				ProdukID:       product.ProductID,
+				StokSebelum:    produk.Stok,
+				StokSesudah:    newStock,
+				Perubahan:      stockToRestore,
+				JenisPerubahan: "return",
+				Keterangan:     fmt.Sprintf("Return dari transaksi %s - alasan: %s", req.NoTransaksi, req.Reason),
+				CreatedAt:      time.Now(),
+			}
+			s.produkService.produkRepo.CreateStokHistory(history)
 		} else {
 			// For damaged goods, still record in history but don't restore sellable stock
 			stockReq := &models.UpdateStokRequest{
@@ -230,22 +308,21 @@ func (s *ReturnService) CreateReturn(req *models.CreateReturnRequest) error {
 
 	// Update transaction status
 	newStatus := s.calculateTransactionStatus(transaksi, req.TransaksiID)
-	if err := s.returnRepo.UpdateTransactionStatus(req.TransaksiID, newStatus); err != nil {
+	if err := s.returnRepo.UpdateTransactionStatus(int(req.TransaksiID), newStatus); err != nil {
 		return fmt.Errorf("failed to update transaction status: %w", err)
 	}
 
 	// Adjust customer points if customer exists
-	if transaksi.Transaksi.PelangganID > 0 {
+	// Support offline IDs (negative values)
+	if transaksi.Transaksi.PelangganID != 0 {
 		if err := s.adjustCustomerPoints(transaksi, refundAmount); err != nil {
 			// Log error but don't fail the return
-			fmt.Printf("Warning: failed to adjust customer points: %v\n", err)
 		}
 	}
 
 	// Mark refund as completed if method is provided
 	if req.RefundMethod != "" {
 		if err := s.returnRepo.UpdateRefundStatus(returnData.ID, "completed"); err != nil {
-			fmt.Printf("Warning: failed to update refund status: %v\n", err)
 		}
 	}
 
@@ -301,9 +378,9 @@ func (s *ReturnService) CalculateRefundAmount(transaksi *models.TransaksiDetail,
 }
 
 // calculateTransactionStatus determines the new status of the transaction after return
-func (s *ReturnService) calculateTransactionStatus(transaksi *models.TransaksiDetail, transaksiID int) string {
+func (s *ReturnService) calculateTransactionStatus(transaksi *models.TransaksiDetail, transaksiID int64) string {
 	// Get all returned items for this transaction
-	returnedItems, err := s.returnRepo.GetAllReturnedItemsByTransaksi(transaksiID)
+	returnedItems, err := s.returnRepo.GetAllReturnedItemsByTransaksi(int(transaksiID))
 	if err != nil {
 		return transaksi.Transaksi.Status // Keep current status on error
 	}

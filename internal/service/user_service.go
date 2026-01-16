@@ -2,7 +2,6 @@ package service
 
 import (
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -71,17 +70,14 @@ func (s *UserService) Login(req *models.LoginRequest) (*models.LoginResponse, er
 	// Don't send password in response
 	user.Password = ""
 
-	log.Printf("[LOGIN] User '%s' (%s) logged in successfully - ID: %d", user.NamaLengkap, user.Role, user.ID)
-	log.Printf("[LOGIN DEBUG] Sending user object to frontend - ID: %d, Username: %s, NamaLengkap: %s, Role: %s",
-		user.ID, user.Username, user.NamaLengkap, user.Role)
+	// Don't send password in response
+	user.Password = ""
 
 	response := &models.LoginResponse{
 		Success: true,
 		Message: "Login berhasil",
 		User:    user,
 	}
-
- 
 
 	return response, nil
 }
@@ -134,7 +130,6 @@ func (s *UserService) CreateUser(req *models.CreateUserRequest) error {
 		return fmt.Errorf("failed to create user: %w", err)
 	}
 
-	log.Printf("[USER] Created new %s: %s (ID: %d)", user.Role, user.NamaLengkap, user.ID)
 	return nil
 }
 
@@ -206,15 +201,16 @@ func (s *UserService) UpdateUser(req *models.UpdateUserRequest) error {
 			return fmt.Errorf("failed to update password: %w", err)
 		}
 
-		log.Printf("[USER] Password updated for user ID: %d", req.ID)
+		if err := s.userRepo.UpdatePassword(req.ID, req.Password); err != nil {
+			return fmt.Errorf("failed to update password: %w", err)
+		}
 	}
 
-	log.Printf("[USER] Updated user: %s (ID: %d)", user.NamaLengkap, user.ID)
 	return nil
 }
 
 // DeleteUser soft deletes a user
-func (s *UserService) DeleteUser(id int) error {
+func (s *UserService) DeleteUser(id int64) error {
 	if id <= 0 {
 		return fmt.Errorf("ID user tidak valid")
 	}
@@ -246,7 +242,6 @@ func (s *UserService) DeleteUser(id int) error {
 		return fmt.Errorf("failed to delete user: %w", err)
 	}
 
-	log.Printf("[USER] Deleted user: %s (ID: %d)", user.NamaLengkap, user.ID)
 	return nil
 }
 
@@ -281,7 +276,7 @@ func (s *UserService) GetAllStaff() ([]*models.User, error) {
 }
 
 // GetUserByID retrieves a user by ID
-func (s *UserService) GetUserByID(id int) (*models.User, error) {
+func (s *UserService) GetUserByID(id int64) (*models.User, error) {
 	user, err := s.userRepo.GetByID(id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user: %w", err)
@@ -336,7 +331,39 @@ func (s *UserService) ChangePassword(req *models.ChangePasswordRequest) error {
 		return fmt.Errorf("failed to update password: %w", err)
 	}
 
-	log.Printf("[USER] Password changed for user ID: %d", req.UserID)
+	return nil
+}
+
+// AdminChangePassword allows admin to change password without old password
+func (s *UserService) AdminChangePassword(userID int64, newPassword string) error {
+	// Validate input
+	if userID <= 0 {
+		return fmt.Errorf("ID user tidak valid")
+	}
+
+	if strings.TrimSpace(newPassword) == "" {
+		return fmt.Errorf("password baru tidak boleh kosong")
+	}
+
+	if len(newPassword) < 6 {
+		return fmt.Errorf("password baru minimal 6 karakter")
+	}
+
+	// Get user to verify exists
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return fmt.Errorf("failed to get user: %w", err)
+	}
+
+	if user == nil {
+		return fmt.Errorf("user tidak ditemukan")
+	}
+
+	// Update password directly (no old password check)
+	if err := s.userRepo.UpdatePassword(userID, newPassword); err != nil {
+		return fmt.Errorf("failed to update password: %w", err)
+	}
+
 	return nil
 }
 
@@ -348,7 +375,6 @@ func (s *UserService) EnsureDefaultAdmin() error {
 	}
 
 	if adminCount > 0 {
-		log.Println("[USER] Admin user already exists")
 		return nil
 	}
 
@@ -367,7 +393,5 @@ func (s *UserService) EnsureDefaultAdmin() error {
 		return fmt.Errorf("failed to create default admin: %w", err)
 	}
 
-	log.Printf("[USER] Default admin created - Username: admin, Password: admin123")
-	log.Printf("[USER] ⚠️  IMPORTANT: Change default password immediately!")
 	return nil
 }

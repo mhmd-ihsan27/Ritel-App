@@ -2,7 +2,6 @@ package service
 
 import (
 	"fmt"
-	"log"
 	"ritel-app/internal/models"
 	"ritel-app/internal/repository"
 	"strings"
@@ -76,23 +75,17 @@ func (s *ProdukService) CreateProduk(produk *models.Produk) error {
 	// AUTO-CREATE INITIAL BATCH if product has initial stock and shelf life
 	// This ensures batch warning works immediately for new products
 	if produk.Stok > 0 && produk.MasaSimpanHari > 0 {
-		log.Printf("[CREATE PRODUK] Auto-creating initial batch for '%s': stok=%.2f, masa_simpan=%d days",
-			produk.Nama, produk.Stok, produk.MasaSimpanHari)
 
 		// Create batch using batch service
-		batch, err := s.batchService.CreateInitialBatch(produk.ID, produk.Stok, produk.MasaSimpanHari, produk.Nama)
+		_, err := s.batchService.CreateInitialBatch(produk.ID, produk.Stok, produk.MasaSimpanHari, produk.Nama)
 		if err != nil {
 			// Log error but don't fail product creation
-			log.Printf("[CREATE PRODUK] Warning: Failed to create initial batch: %v", err)
 		} else {
-			log.Printf("[CREATE PRODUK] Initial batch created successfully: %s (expires: %s)",
-				batch.ID, batch.TanggalKadaluarsa.Format("2006-01-02"))
 		}
 	}
 
 	return nil
 }
-
 
 // ScanBarcode scans a barcode and adds to cart
 func (s *ProdukService) ScanBarcode(barcode string, jumlah int) (*models.ScanBarcodeResponse, error) {
@@ -158,8 +151,6 @@ func (s *ProdukService) GetKeranjang() ([]*models.KeranjangItem, error) {
 	return s.keranjangRepo.GetAll()
 }
 
- 
-
 // ProcessKeranjang processes cart items and updates stock
 func (s *ProdukService) ProcessKeranjang() error {
 	// Get all cart items
@@ -208,7 +199,6 @@ func (s *ProdukService) UpdateKeranjangJumlah(id int, jumlah int) error {
 }
 
 func (s *ProdukService) UpdateProduk(produk *models.Produk) error {
-	 
 
 	// Validate required fields
 	if strings.TrimSpace(produk.SKU) == "" {
@@ -265,15 +255,11 @@ func (s *ProdukService) UpdateProduk(produk *models.Produk) error {
 
 	// If masa_simpan_hari changed, update all batches for this product
 	if masaSimpanChanged && produk.MasaSimpanHari > 0 {
-		log.Printf("[UPDATE PRODUK] Masa simpan changed from %d to %d days for product %d (%s). Updating all batches...",
-			existing.MasaSimpanHari, produk.MasaSimpanHari, produk.ID, produk.Nama)
 
 		err := s.batchService.UpdateBatchShelfLifeForProduct(produk.ID, produk.MasaSimpanHari)
 		if err != nil {
 			// Log error but don't fail the product update
-			log.Printf("[UPDATE PRODUK] Warning: Failed to update batches: %v", err)
 		} else {
-			log.Printf("[UPDATE PRODUK] Successfully updated all batches for product %d with new shelf life", produk.ID)
 		}
 	}
 
@@ -296,8 +282,6 @@ func (s *ProdukService) DeleteProduk(id int) error {
 	}
 
 	// Log cascade delete information
-	fmt.Printf("Deleting product '%s' (ID: %d) and all related data (batches, history, transaction items, cart items)...\n",
-		existing.Nama, id)
 
 	// Delete product and all related data (cascade delete)
 	if err := s.produkRepo.Delete(id); err != nil {
@@ -305,10 +289,8 @@ func (s *ProdukService) DeleteProduk(id int) error {
 		return err
 	}
 
-	fmt.Printf("Product '%s' and all related data successfully deleted\n", existing.Nama)
 	return nil
 }
-
 
 // UpdateStok updates product stock with history tracking
 func (s *ProdukService) UpdateStok(req *models.UpdateStokRequest) error {
@@ -331,6 +313,26 @@ func (s *ProdukService) UpdateStok(req *models.UpdateStokRequest) error {
 		return fmt.Errorf("failed to update stock: %w", err)
 	}
 
+	// Handle batch changes based on delta
+	delta := req.StokBaru - currentProduk.Stok
+	if delta > 0 && req.MasaSimpanHari > 0 {
+		restokReq := &models.UpdateStokRequest{
+			ProdukID:       req.ProdukID,
+			Perubahan:      delta,
+			Jenis:          req.Jenis,
+			Keterangan:     req.Keterangan,
+			MasaSimpanHari: req.MasaSimpanHari,
+			Supplier:       req.Supplier,
+		}
+		_, err := s.batchService.CreateBatchFromRestok(restokReq)
+		if err != nil {
+		}
+	} else if delta < 0 {
+		qtyToDeduct := -delta
+		if err := s.batchService.DeductFromBatches(req.ProdukID, qtyToDeduct); err != nil {
+		}
+	}
+
 	// Record history
 	history := &models.StokHistory{
 		ProdukID:       req.ProdukID,
@@ -346,7 +348,6 @@ func (s *ProdukService) UpdateStok(req *models.UpdateStokRequest) error {
 
 	if err := s.produkRepo.CreateStokHistory(history); err != nil {
 		// Log error but don't fail the update
-		log.Printf("Failed to record stock history: %v", err)
 	}
 
 	return nil
@@ -381,26 +382,20 @@ func (s *ProdukService) UpdateStokIncrement(req *models.UpdateStokRequest) error
 	// ===  BATCH SYSTEM: Handle batch updates ===
 	if req.Perubahan > 0 && req.MasaSimpanHari > 0 {
 		// POSITIVE CHANGE (Adding stock): Create new batch
-		log.Printf("Creating batch for restock: produk=%d, qty=%.2f, shelf_life=%d days", req.ProdukID, req.Perubahan, req.MasaSimpanHari)
 
-		batch, err := s.batchService.CreateBatchFromRestok(req)
+		_, err := s.batchService.CreateBatchFromRestok(req)
 		if err != nil {
 			// Log error but don't fail the stock update
-			log.Printf("Warning: Failed to create batch: %v", err)
 		} else {
-			log.Printf("Batch created successfully: %s", batch.ID)
 		}
 	} else if req.Perubahan < 0 {
 		// NEGATIVE CHANGE (Reducing stock): Deduct from batches using FIFO
 		qtyToDeduct := -req.Perubahan
-		log.Printf("Reducing stock for produk=%d, qty=%.2f - deducting from batches (FIFO)", req.ProdukID, qtyToDeduct)
 
 		err := s.batchService.DeductFromBatches(req.ProdukID, qtyToDeduct)
 		if err != nil {
 			// Log error but don't fail the stock update
-			log.Printf("Warning: Failed to deduct from batches: %v", err)
 		} else {
-			log.Printf("Successfully deducted %.2f units from batches", qtyToDeduct)
 		}
 	}
 
@@ -418,7 +413,6 @@ func (s *ProdukService) UpdateStokIncrement(req *models.UpdateStokRequest) error
 	}
 
 	if err := s.produkRepo.CreateStokHistory(history); err != nil {
-		log.Printf("Failed to record stock history: %v", err)
 	}
 
 	return nil

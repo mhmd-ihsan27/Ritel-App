@@ -73,6 +73,8 @@ func (r *SettingsRepository) UpdatePoinSettings(settings *models.PoinSettings) e
 		settings.Level3MinSpending,
 	)
 
+	fmt.Printf("[SETTINGS REPO] Executed update. MinExchange: %d\n", settings.MinExchange)
+
 	if err != nil {
 		return fmt.Errorf("failed to update poin settings: %w", err)
 	}
@@ -83,13 +85,38 @@ func (r *SettingsRepository) UpdatePoinSettings(settings *models.PoinSettings) e
 	}
 
 	if rowsAffected == 0 {
-		// If no rows were updated, create default settings
-		_, err := r.createDefaultSettings()
-		if err != nil {
-			return fmt.Errorf("failed to create default settings: %w", err)
+		// Check if record exists
+		var id int
+		err := database.QueryRow("SELECT id FROM poin_settings WHERE id = 1").Scan(&id)
+		if err == sql.ErrNoRows {
+			// Record doesn't exist, Insert with PROVIDED settings (not defaults)
+			insertQuery := `
+				INSERT INTO poin_settings (
+					id, point_value, min_exchange,
+					min_transaction_for_points, level2_min_points, level3_min_points,
+					level2_min_spending, level3_min_spending
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			`
+			_, err := database.Exec(insertQuery,
+				1, // ID is always 1
+				settings.PointValue,
+				settings.MinExchange,
+				settings.MinTransactionForPoints,
+				settings.Level2MinPoints,
+				settings.Level3MinPoints,
+				settings.Level2MinSpending,
+				settings.Level3MinSpending,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to insert poin settings: %w", err)
+			}
+			return nil
+		} else if err != nil {
+			return fmt.Errorf("failed to check existence: %w", err)
 		}
-		// Try update again
-		return r.UpdatePoinSettings(settings)
+
+		// Record exists but no changes needed -> Success
+		return nil
 	}
 
 	return nil

@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"fmt"
@@ -25,8 +26,7 @@ func NewTransaksiRepository() *TransaksiRepository {
 
 // GenerateNomorTransaksi generates a unique transaction number with random digits
 func (r *TransaksiRepository) GenerateNomorTransaksi() (string, error) {
-	// Check if database connection is nil
-	if r.db == nil {
+	if database.DB == nil {
 		return "", fmt.Errorf("database connection is not initialized")
 	}
 
@@ -60,19 +60,46 @@ func (r *TransaksiRepository) GenerateNomorTransaksi() (string, error) {
 
 // Create creates a new transaction with items and payments
 func (r *TransaksiRepository) Create(req *models.CreateTransaksiRequest) (*models.TransaksiDetail, error) {
-	// Check if database connection is nil
-	if r.db == nil {
+	// Use global database.DB to ensure we always get the fresh connection pool
+	// (especially after a ResetConnectionPool call)
+	db := database.DB
+	if db == nil {
 		return nil, fmt.Errorf("database connection is not initialized")
 	}
 
-	// Start transaction
-	tx, err := r.db.Begin()
+	// Start transaction with proper isolation level for PostgreSQL
+	// Use RepeatableRead to avoid race conditions during batch updates
+	txOptions := &sql.TxOptions{
+		Isolation: sql.LevelRepeatableRead,
+	}
+
+	var tx *sql.Tx
+	var err error
+
+	// For PostgreSQL/pgx, add specific timeout handling
+	if database.CurrentDriver == "postgres" || database.CurrentDriver == "pgx" {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if pingErr := db.PingContext(ctx); pingErr != nil {
+			return nil, fmt.Errorf("database connection is not available: %w", pingErr)
+		}
+		tx, err = db.BeginTx(ctx, txOptions)
+	} else {
+		if pingErr := db.Ping(); pingErr != nil {
+			return nil, fmt.Errorf("database connection is not available: %w", pingErr)
+		}
+		tx, err = db.BeginTx(context.Background(), txOptions)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
 
-	// Generate transaction number
+	// Generate transaction number (pass nil DB to likely use global or fix if needed,
+	// but better to just use connection pool since we fixed the deadlock).
+	// Ideally we should use tx, but GenerateNomorTransaksi is on Repository which uses global DB.
+	// Since we fixed the pool size, this dead-lock should be gone.
 	nomorTransaksi, err := r.GenerateNomorTransaksi()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate transaction number: %w", err)
@@ -113,24 +140,49 @@ func (r *TransaksiRepository) Create(req *models.CreateTransaksiRequest) (*model
 	query := `INSERT INTO transaksi (
 		nomor_transaksi, pelanggan_id, pelanggan_nama, pelanggan_telp,
 		subtotal, diskon_promo, diskon_pelanggan, poin_ditukar, diskon_poin, diskon, total, total_bayar, kembalian,
-		status, catatan, kasir, staff_id, staff_nama, created_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+		status, catatan, kasir, staff_id, staff_nama, created_at, tanggal
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
 	query = database.TranslateQuery(query)
 
 	// Calculate diskon_poin from poin_ditukar (will be set in service layer)
 	poinDitukar := req.PoinDitukar
 	diskonPoin := 0 // Will be calculated in service layer
 
-	now := time.Now()
+	// Decouple created_at (Display/System Time) and tanggal (Business/Report Date)
+	// created_at: Real UTC time, allows frontend/browser to convert to local time correctly
+	createdAt := time.Now().UTC()
+
+	// tanggal: WIB time for reporting buckets
+	// This ensures that reports query based on the fixed business timezone (WIB)
+	wib := time.FixedZone("WIB", 7*3600)
+	tanggal := time.Now().In(wib)
 
 	var transaksiID int64
-	err = tx.QueryRow(query,
-		nomorTransaksi, req.PelangganID, req.PelangganNama, req.PelangganTelp,
-		subtotal, diskonPromo, diskonPelanggan, poinDitukar, diskonPoin, req.Diskon, total, totalBayar, kembalian,
-		"selesai", req.Catatan, req.Kasir, req.StaffID, req.StaffNama, now,
-	).Scan(&transaksiID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to insert transaction: %w", err)
+	if database.UseDualMode && database.IsSQLite() {
+		transaksiID = database.GenerateOfflineID()
+		query := `INSERT INTO transaksi (
+			id, nomor_transaksi, pelanggan_id, pelanggan_nama, pelanggan_telp,
+			subtotal, diskon_promo, diskon_pelanggan, poin_ditukar, diskon_poin, diskon, total, total_bayar, kembalian,
+			status, catatan, kasir, staff_id, staff_nama, created_at, tanggal
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		query = database.TranslateQuery(query)
+		_, err = tx.Exec(query,
+			transaksiID, nomorTransaksi, req.PelangganID, req.PelangganNama, req.PelangganTelp,
+			subtotal, diskonPromo, diskonPelanggan, poinDitukar, diskonPoin, req.Diskon, total, totalBayar, kembalian,
+			"selesai", req.Catatan, req.Kasir, req.StaffID, req.StaffNama, createdAt, tanggal,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to insert transaction: %w", err)
+		}
+	} else {
+		err = tx.QueryRow(query,
+			nomorTransaksi, req.PelangganID, req.PelangganNama, req.PelangganTelp,
+			subtotal, diskonPromo, diskonPelanggan, poinDitukar, diskonPoin, req.Diskon, total, totalBayar, kembalian,
+			"selesai", req.Catatan, req.Kasir, req.StaffID, req.StaffNama, createdAt, tanggal,
+		).Scan(&transaksiID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to insert transaction: %w", err)
+		}
 	}
 
 	// Insert transaction items
@@ -139,13 +191,17 @@ func (r *TransaksiRepository) Create(req *models.CreateTransaksiRequest) (*model
 		produk_kategori, harga_satuan, jumlah, beratgram, subtotal, created_at
 	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	itemQuery = database.TranslateQuery(itemQuery)
+	itemQueryWithID := database.TranslateQuery(`INSERT INTO transaksi_item (
+		id, transaksi_id, produk_id, produk_sku, produk_nama,
+		produk_kategori, harga_satuan, jumlah, beratgram, subtotal, created_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 
 	for _, item := range req.Items {
 		// Get product details
 		var produk models.Produk
-		productQuery := database.TranslateQuery(`SELECT sku, nama, kategori, stok FROM produk WHERE id = ?`)
+		productQuery := database.TranslateQuery(`SELECT sku, nama, kategori, stok, satuan FROM produk WHERE id = ?`)
 		err := tx.QueryRow(productQuery, item.ProdukID).
-			Scan(&produk.SKU, &produk.Nama, &produk.Kategori, &produk.Stok)
+			Scan(&produk.SKU, &produk.Nama, &produk.Kategori, &produk.Stok, &produk.Satuan)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get product: %w", err)
 		}
@@ -153,15 +209,16 @@ func (r *TransaksiRepository) Create(req *models.CreateTransaksiRequest) (*model
 		// Calculate stock to deduct FIRST (support berat or quantity)
 		var stockToDeduct float64
 		if item.BeratGram > 0 {
-			// Presisi: stok berkurang sesuai berat dalam kg
-			stockToDeduct = item.BeratGram / 1000.0
-			fmt.Printf("[DEBUG STOCK] Produk: %s, BeratGram: %.2f, StockToDeduct: %.3f kg, Stok Sekarang: %.2f kg\n",
-				produk.Nama, item.BeratGram, stockToDeduct, produk.Stok)
+			if produk.Satuan == "gram" {
+				// If unit is gram, deduct grams directly
+				stockToDeduct = item.BeratGram
+			} else {
+				// Satuan kg atau lainnya: stok disimpan dalam kg (default), konversi gram ke kg
+				stockToDeduct = item.BeratGram / 1000.0
+			}
 		} else {
 			// Quantity biasa untuk backward compatibility
 			stockToDeduct = float64(item.Jumlah)
-			fmt.Printf("[DEBUG STOCK] Produk: %s, Quantity: %d, StockToDeduct: %.3f, Stok Sekarang: %.2f kg\n",
-				produk.Nama, item.Jumlah, stockToDeduct, produk.Stok)
 		}
 
 		// Check stock availability with correct value
@@ -181,11 +238,20 @@ func (r *TransaksiRepository) Create(req *models.CreateTransaksiRequest) (*model
 		}
 
 		// Insert item
-		_, err = tx.Exec(itemQuery,
-			transaksiID, item.ProdukID, produk.SKU, produk.Nama,
-			produk.Kategori, item.HargaSatuan, item.Jumlah, item.BeratGram, itemSubtotal,
-			now,
-		)
+		if database.UseDualMode && database.IsSQLite() {
+			itemID := database.GenerateOfflineID()
+			_, err = tx.Exec(itemQueryWithID,
+				itemID, transaksiID, item.ProdukID, produk.SKU, produk.Nama,
+				produk.Kategori, item.HargaSatuan, item.Jumlah, item.BeratGram, itemSubtotal,
+				createdAt,
+			)
+		} else {
+			_, err = tx.Exec(itemQuery,
+				transaksiID, item.ProdukID, produk.SKU, produk.Nama,
+				produk.Kategori, item.HargaSatuan, item.Jumlah, item.BeratGram, itemSubtotal,
+				createdAt,
+			)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("failed to insert transaction item: %w", err)
 		}
@@ -205,43 +271,90 @@ func (r *TransaksiRepository) Create(req *models.CreateTransaksiRequest) (*model
 			ORDER BY tanggal_restok ASC, created_at ASC
 		`
 		batchQuery = database.TranslateQuery(batchQuery)
-		rows, err := tx.Query(batchQuery, item.ProdukID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get batches: %w", err)
+
+		// Add retry mechanism for PostgreSQL connection issues
+		var rows *sql.Rows
+		var batchErr error
+		for retry := 0; retry < 3; retry++ {
+			rows, batchErr = tx.Query(batchQuery, item.ProdukID)
+			if batchErr == nil {
+				break
+			}
+			time.Sleep(time.Millisecond * 100 * time.Duration(retry+1))
 		}
-		defer rows.Close()
+		if batchErr != nil {
+			return nil, fmt.Errorf("failed to get batches after 3 attempts: %w", batchErr)
+		}
+
+		// defer rows.Close() // REMOVED: Defer inside loop causes cursor leak
+
+		// Fix: Read all batches first to avoid "driver: bad connection" when executing UPDATE while SELECT rows are open
+		type BatchInfo struct {
+			ID         string
+			QtyTersisa float64
+		}
+		var eligibleBatches []BatchInfo
+
+		for rows.Next() {
+			var b BatchInfo
+			if err := rows.Scan(&b.ID, &b.QtyTersisa); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("failed to scan batch: %w", err)
+			}
+			if b.ID != "" {
+				eligibleBatches = append(eligibleBatches, b)
+			}
+		}
+		rows.Close()
 
 		remainingQty := stockToDeduct
-		for rows.Next() && remainingQty > 0 {
-			var batchID string
-			var qtyTersisa float64
-			if err := rows.Scan(&batchID, &qtyTersisa); err != nil {
-				return nil, fmt.Errorf("failed to scan batch: %w", err)
+		for _, batch := range eligibleBatches {
+			if remainingQty <= 0 {
+				break
 			}
 
 			// Determine how much to take from this batch
 			qtyFromThisBatch := remainingQty
-			if qtyFromThisBatch > qtyTersisa {
-				qtyFromThisBatch = qtyTersisa
+			if qtyFromThisBatch > batch.QtyTersisa {
+				qtyFromThisBatch = batch.QtyTersisa
 			}
 
-			// Update batch quantity
-			updateBatchQuery := database.TranslateQuery(`UPDATE batch SET qty_tersisa = qty_tersisa - ? WHERE id = ?`)
-			_, err = tx.Exec(updateBatchQuery, qtyFromThisBatch, batchID)
-			if err != nil {
-				return nil, fmt.Errorf("failed to update batch %s: %w", batchID, err)
+			// Use existing BatchRepository
+			batchRepo := &BatchRepository{}
+			updateErr := batchRepo.UpdateBatchQtyTx(tx, batch.ID, qtyFromThisBatch)
+			if updateErr != nil {
+				return nil, fmt.Errorf("failed to update batch %s: %w", batch.ID, updateErr)
+			}
+
+			// Record batch usage for later restoration on returns
+			transaksiBatchRepo := NewTransaksiBatchRepository()
+			transaksiBatch := &models.TransaksiBatch{
+				TransaksiID: int(transaksiID),
+				BatchID:     batch.ID,
+				ProdukID:    item.ProdukID,
+				QtyDiambil:  qtyFromThisBatch,
+			}
+			// Use CreateTx to ensure record is part of the transaction
+			if err := transaksiBatchRepo.CreateTx(tx, transaksiBatch); err != nil {
+				// Don't ignore error in Postgres transaction! It aborts the transaction state.
+				return nil, fmt.Errorf("failed to record batch usage: %w", err)
 			}
 
 			remainingQty -= qtyFromThisBatch
 		}
-		rows.Close()
 	}
 
 	// Insert payments
 	paymentQuery := `INSERT INTO pembayaran (transaksi_id, metode, jumlah, referensi, created_at) VALUES (?, ?, ?, ?, ?)`
 	paymentQuery = database.TranslateQuery(paymentQuery)
+	paymentQueryWithID := database.TranslateQuery(`INSERT INTO pembayaran (id, transaksi_id, metode, jumlah, referensi, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
 	for _, payment := range req.Pembayaran {
-		_, err = tx.Exec(paymentQuery, transaksiID, payment.Metode, payment.Jumlah, payment.Referensi, now)
+		if database.UseDualMode && database.IsSQLite() {
+			paymentID := database.GenerateOfflineID()
+			_, err = tx.Exec(paymentQueryWithID, paymentID, transaksiID, payment.Metode, payment.Jumlah, payment.Referensi, createdAt)
+		} else {
+			_, err = tx.Exec(paymentQuery, transaksiID, payment.Metode, payment.Jumlah, payment.Referensi, createdAt)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("failed to insert payment: %w", err)
 		}
@@ -253,7 +366,7 @@ func (r *TransaksiRepository) Create(req *models.CreateTransaksiRequest) (*model
 	}
 
 	// Get complete transaction details
-	return r.GetByID(int(transaksiID))
+	return r.GetByID(transaksiID)
 }
 
 // GetByID retrieves a complete transaction by ID
@@ -352,11 +465,10 @@ func (r *TransaksiRepository) GetByNomorTransaksi(nomorTransaksi string) (*model
 	}, nil
 }
 
-func (r *TransaksiRepository) GetByID(id int) (*models.TransaksiDetail, error) {
+func (r *TransaksiRepository) GetByID(id int64) (*models.TransaksiDetail, error) {
 
 	// Check if database connection is nil
 	if r.db == nil {
-		fmt.Println("[ERROR] Database connection is not initialized")
 		return nil, fmt.Errorf("database connection is not initialized")
 	}
 
@@ -377,7 +489,6 @@ func (r *TransaksiRepository) GetByID(id int) (*models.TransaksiDetail, error) {
 		&transaksi.CreatedAt,
 	)
 	if err != nil {
-		fmt.Printf("[ERROR] Failed to get transaction header: %v\n", err)
 		return nil, fmt.Errorf("failed to get transaction: %w", err)
 	}
 
@@ -389,7 +500,6 @@ func (r *TransaksiRepository) GetByID(id int) (*models.TransaksiDetail, error) {
 
 	rows, err := database.Query(itemQuery, id)
 	if err != nil {
-		fmt.Printf("[ERROR] Failed to query transaction items: %v\n", err)
 		return nil, fmt.Errorf("failed to get transaction items: %w", err)
 	}
 	defer rows.Close()
@@ -405,7 +515,6 @@ func (r *TransaksiRepository) GetByID(id int) (*models.TransaksiDetail, error) {
 			&item.Jumlah, &item.BeratGram, &item.Subtotal, &item.CreatedAt,
 		)
 		if err != nil {
-			fmt.Printf("[ERROR] Failed to scan transaction item: %v\n", err)
 			return nil, fmt.Errorf("failed to scan transaction item: %w", err)
 		}
 
@@ -429,7 +538,6 @@ func (r *TransaksiRepository) GetByID(id int) (*models.TransaksiDetail, error) {
 
 	paymentRows, err := database.Query(paymentQuery, id)
 	if err != nil {
-		fmt.Printf("[ERROR] Failed to query payments: %v\n", err)
 		return nil, fmt.Errorf("failed to get payments: %w", err)
 	}
 	defer paymentRows.Close()
@@ -443,7 +551,6 @@ func (r *TransaksiRepository) GetByID(id int) (*models.TransaksiDetail, error) {
 			&payment.Jumlah, &payment.Referensi, &payment.CreatedAt,
 		)
 		if err != nil {
-			fmt.Printf("[ERROR] Failed to scan payment: %v\n", err)
 			return nil, fmt.Errorf("failed to scan payment: %w", err)
 		}
 		pembayaran = append(pembayaran, payment)
@@ -462,19 +569,23 @@ func (r *TransaksiRepository) GetByID(id int) (*models.TransaksiDetail, error) {
 
 // GetAll retrieves all transactions with pagination
 func (r *TransaksiRepository) GetAll(limit, offset int) ([]*models.Transaksi, error) {
-	// Check if database connection is nil
-	if r.db == nil {
-		return []*models.Transaksi{}, nil // Return empty array instead of error
+	// Use global database.DB
+	if database.DB == nil {
+		return []*models.Transaksi{}, nil
 	}
+
+	// Debug log
+	fmt.Printf("[DEBUG] GetAll: Limit=%d Offset=%d. SmartManager=%v\n", limit, offset, database.SmartManager != nil)
 
 	query := `SELECT
 		id, nomor_transaksi, tanggal, pelanggan_id, pelanggan_nama, pelanggan_telp,
 		subtotal, diskon_promo, diskon_pelanggan, poin_ditukar, diskon_poin, diskon, total, total_bayar, kembalian,
 		status, catatan, kasir, created_at
 	FROM transaksi
-	ORDER BY tanggal DESC
+	ORDER BY created_at DESC
 	LIMIT ? OFFSET ?`
 
+	// Use database.Query which handles fallback
 	rows, err := database.Query(query, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get transactions: %w", err)
@@ -482,6 +593,7 @@ func (r *TransaksiRepository) GetAll(limit, offset int) ([]*models.Transaksi, er
 	defer rows.Close()
 
 	var transaksis []*models.Transaksi
+	count := 0
 	for rows.Next() {
 		t := &models.Transaksi{}
 		var pelangganTelp, catatan, kasir sql.NullString
@@ -509,7 +621,10 @@ func (r *TransaksiRepository) GetAll(limit, offset int) ([]*models.Transaksi, er
 		}
 
 		transaksis = append(transaksis, t)
+		count++
 	}
+
+	fmt.Printf("[DEBUG] GetAll: Found %d transactions\n", count)
 
 	// Return empty array if no transactions found
 	if transaksis == nil {
@@ -532,8 +647,8 @@ func (r *TransaksiRepository) GetByDateRange(startDate, endDate time.Time) ([]*m
 		subtotal, diskon_promo, diskon_pelanggan, poin_ditukar, diskon_poin, diskon, total, total_bayar, kembalian,
 		status, catatan, kasir, created_at
 	FROM transaksi
-	WHERE created_at >= ? AND created_at < ?
-	ORDER BY created_at DESC`
+	WHERE tanggal >= ? AND tanggal < ?
+	ORDER BY tanggal DESC`
 
 	rows, err := database.Query(query, startDate, endDate)
 	if err != nil {
@@ -587,17 +702,77 @@ func (r *TransaksiRepository) GetTodayStats() (totalTransaksi int, totalPendapat
 	}
 
 	query := `SELECT
-		COUNT(*) as total_transaksi,
-		COALESCE(SUM(total), 0) as total_pendapatan,
-		COALESCE(SUM((SELECT SUM(jumlah) FROM transaksi_item WHERE transaksi_id = transaksi.id)), 0) as total_item
-	FROM transaksi
-	WHERE DATE(tanggal) = CURRENT_DATE`
+		SUM(total_transaksi),
+		SUM(total_pendapatan),
+		SUM(total_item)
+	FROM (
+		-- Sales
+		SELECT
+			COUNT(*) as total_transaksi,
+			COALESCE(SUM(total), 0) as total_pendapatan,
+			COALESCE(SUM((SELECT SUM(jumlah) FROM transaksi_item WHERE transaksi_id = t.id)), 0) as total_item
+		FROM transaksi t
+		WHERE DATE(tanggal) = CURRENT_DATE AND status IN ('selesai', 'partial_return', 'fully_returned')
+
+		UNION ALL
+
+		-- Refunds (Negative)
+		SELECT
+			0 as total_transaksi,
+			-COALESCE(SUM(r.refund_amount), 0) as total_pendapatan,
+			-COALESCE(SUM(ri.quantity), 0) as total_item
+		FROM returns r
+		LEFT JOIN return_items ri ON r.id = ri.return_id
+		WHERE DATE(r.return_date) = CURRENT_DATE
+	)`
 
 	err = database.QueryRow(query).Scan(&totalTransaksi, &totalPendapatan, &totalItem)
 	return
 }
 
-func (r *TransaksiRepository) GetByPelangganID(pelangganID int) ([]*models.Transaksi, error) {
+// GetStatsByDateRange gets statistics for a specific date range
+func (r *TransaksiRepository) GetStatsByDateRange(startDate, endDate time.Time) (totalTransaksi int, totalPendapatan int, totalItem int, err error) {
+	// Check if database connection is nil
+	if r.db == nil {
+		return 0, 0, 0, nil
+	}
+
+	query := `SELECT
+		SUM(total_transaksi),
+		SUM(total_pendapatan),
+		SUM(total_item)
+	FROM (
+		-- Sales
+		SELECT
+			COUNT(*) as total_transaksi,
+			COALESCE(SUM(total), 0) as total_pendapatan,
+			COALESCE(SUM((SELECT SUM(jumlah) FROM transaksi_item WHERE transaksi_id = t.id)), 0) as total_item
+		FROM transaksi t
+		WHERE DATE(tanggal) >= DATE(?) AND DATE(tanggal) <= DATE(?) AND status IN ('selesai', 'partial_return', 'fully_returned')
+
+		UNION ALL
+
+		-- Refunds (Negative)
+		SELECT
+			0 as total_transaksi,
+			-COALESCE(SUM(r.refund_amount), 0) as total_pendapatan,
+			-COALESCE(SUM(ri.quantity), 0) as total_item
+		FROM returns r
+		LEFT JOIN return_items ri ON r.id = ri.return_id
+		WHERE DATE(r.return_date) >= DATE(?) AND DATE(r.return_date) <= DATE(?)
+	)`
+
+	// Handle standard Go time vs SQLite date comparison if needed, but DATE() function is robust
+	// Passing formatted strings safely
+	startStr := startDate.Format("2006-01-02")
+	endStr := endDate.Format("2006-01-02")
+
+	// Need 4 args now: start, end, start, end
+	err = database.QueryRow(query, startStr, endStr, startStr, endStr).Scan(&totalTransaksi, &totalPendapatan, &totalItem)
+	return
+}
+
+func (r *TransaksiRepository) GetByPelangganID(pelangganID int64) ([]*models.Transaksi, error) {
 	// Check if database connection is nil
 	if r.db == nil {
 		return []*models.Transaksi{}, nil
@@ -655,7 +830,7 @@ func (r *TransaksiRepository) GetByPelangganID(pelangganID int) ([]*models.Trans
 	return transaksis, nil
 }
 
-func (r *TransaksiRepository) GetStatsByPelangganID(pelangganID int) (*models.PelangganStats, error) {
+func (r *TransaksiRepository) GetStatsByPelangganID(pelangganID int64) (*models.PelangganStats, error) {
 	// Check if database connection is nil
 	if r.db == nil {
 		return &models.PelangganStats{
@@ -689,7 +864,21 @@ func (r *TransaksiRepository) GetStatsByPelangganID(pelangganID int) (*models.Pe
 }
 
 // GetByStaffIDAndDateRange retrieves transactions by staff ID within date range
-func (r *TransaksiRepository) GetByStaffIDAndDateRange(staffID int, startDate, endDate time.Time) ([]*models.Transaksi, error) {
+// For backward compatibility, also matches transactions where staff_id IS NULL
+// but kasir field matches the staff's name (legacy field)
+func (r *TransaksiRepository) GetByStaffIDAndDateRange(staffID int64, startDate, endDate time.Time) ([]*models.Transaksi, error) {
+	// First, get the staff name to match against kasir field for backward compatibility
+	var staffName string
+	err := database.QueryRow("SELECT nama_lengkap FROM users WHERE id = ?", staffID).Scan(&staffName)
+	if err != nil {
+		// If staff not found, still continue with just staff_id matching
+		// This handles edge cases where staff might be deleted
+		staffName = ""
+	}
+
+	// Format dates to strings for accurate comparison in SQLite
+	startDateStr := startDate.Format("2006-01-02")
+	endDateStr := endDate.Format("2006-01-02")
 
 	query := `
 		SELECT id, nomor_transaksi, tanggal, pelanggan_nama, pelanggan_telp, pelanggan_id,
@@ -697,13 +886,15 @@ func (r *TransaksiRepository) GetByStaffIDAndDateRange(staffID int, startDate, e
 		       total, total_bayar, kembalian, status, catatan, kasir,
 		       staff_id, staff_nama, created_at
 		FROM transaksi
-		WHERE staff_id = ? AND DATE(tanggal) >= DATE(?) AND DATE(tanggal) <= DATE(?)
+		WHERE (staff_id = ? OR LOWER(kasir) = LOWER(?))
+		  AND DATE(tanggal) >= ? 
+		  AND DATE(tanggal) <= ?
 		ORDER BY tanggal DESC
 	`
 
-	rows, err := database.Query(query, staffID, startDate, endDate)
+	rows, err := database.Query(query, staffID, staffName, startDateStr, endDateStr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query transactions: %w", err)
+		return nil, fmt.Errorf("query error: %w", err)
 	}
 	defer rows.Close()
 
@@ -750,7 +941,7 @@ func (r *TransaksiRepository) GetByStaffIDAndDateRange(staffID int, startDate, e
 			t.Kasir = kasir.String
 		}
 		if staffID.Valid {
-			staffIDInt := int(staffID.Int64)
+			staffIDInt := staffID.Int64
 			t.StaffID = &staffIDInt
 		}
 
@@ -761,18 +952,26 @@ func (r *TransaksiRepository) GetByStaffIDAndDateRange(staffID int, startDate, e
 }
 
 // GetDailyBreakdownByStaffID gets daily aggregated data for a staff
-func (r *TransaksiRepository) GetDailyBreakdownByStaffID(staffID int, startDate, endDate time.Time) (map[string]*models.StaffDailyReport, error) {
+func (r *TransaksiRepository) GetDailyBreakdownByStaffID(staffID int64, startDate, endDate time.Time) (map[string]*models.StaffDailyReport, error) {
+	// Get staff name for backward compatibility
+	var staffName string
+	err := database.QueryRow("SELECT nama_lengkap FROM users WHERE id = ?", staffID).Scan(&staffName)
+	if err != nil {
+		staffName = ""
+	}
+
 	query := `
 		SELECT DATE(tanggal) as tanggal,
 		       COUNT(*) as total_transaksi,
 		       SUM(total) as total_penjualan
 		FROM transaksi
-		WHERE staff_id = ? AND DATE(tanggal) >= DATE(?) AND DATE(tanggal) <= DATE(?)
+		WHERE (staff_id = ? OR LOWER(kasir) = LOWER(?))
+		  AND DATE(tanggal) >= DATE(?) AND DATE(tanggal) <= DATE(?)
 		GROUP BY DATE(tanggal)
 		ORDER BY DATE(tanggal) ASC
 	`
 
-	rows, err := database.Query(query, staffID, startDate, endDate)
+	rows, err := database.Query(query, staffID, staffName, startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query daily breakdown: %w", err)
 	}
@@ -828,16 +1027,24 @@ func (r *TransaksiRepository) GetTopProductLast30Days() (string, error) {
 }
 
 // GetItemCountsByDateForStaff gets total item counts grouped by date for a staff
-func (r *TransaksiRepository) GetItemCountsByDateForStaff(staffID int, startDate, endDate time.Time) (map[string]int, error) {
+func (r *TransaksiRepository) GetItemCountsByDateForStaff(staffID int64, startDate, endDate time.Time) (map[string]int, error) {
+	// Get staff name for backward compatibility
+	var staffName string
+	err := database.QueryRow("SELECT nama_lengkap FROM users WHERE id = ?", staffID).Scan(&staffName)
+	if err != nil {
+		staffName = ""
+	}
+
 	query := `
 		SELECT DATE(t.tanggal) as tanggal, SUM(ti.jumlah) as total_items
 		FROM transaksi t
 		JOIN transaksi_item ti ON t.id = ti.transaksi_id
-		WHERE t.staff_id = ? AND DATE(t.tanggal) >= DATE(?) AND DATE(t.tanggal) <= DATE(?)
+		WHERE (t.staff_id = ? OR LOWER(t.kasir) = LOWER(?))
+		  AND DATE(t.tanggal) >= DATE(?) AND DATE(t.tanggal) <= DATE(?)
 		GROUP BY DATE(t.tanggal)
 	`
 
-	rows, err := database.Query(query, staffID, startDate, endDate)
+	rows, err := database.Query(query, staffID, staffName, startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query item counts: %w", err)
 	}
@@ -892,7 +1099,7 @@ func (r *TransaksiRepository) GetSalesByShift() (map[string]int, error) {
 
 // GetShiftDataByStaffIDAndDateRange gets detailed shift data for a staff within date range
 // Pagi: 06:00-14:00, Sore: 14:00-22:00, Malam: 22:00-06:00
-func (r *TransaksiRepository) GetShiftDataByStaffIDAndDateRange(staffID int, startDate, endDate time.Time) (map[string]map[string]interface{}, error) {
+func (r *TransaksiRepository) GetShiftDataByStaffIDAndDateRange(staffID int64, startDate, endDate time.Time) (map[string]map[string]interface{}, error) {
 	// Get all transactions for the specified staff and date range
 	transaksiList, err := r.GetByStaffIDAndDateRange(staffID, startDate, endDate)
 	if err != nil {
@@ -935,15 +1142,23 @@ func (r *TransaksiRepository) GetShiftDataByStaffIDAndDateRange(staffID int, sta
 }
 
 // GetTransactionCountsByDateForStaff gets transaction counts grouped by date for a staff
-func (r *TransaksiRepository) GetTransactionCountsByDateForStaff(staffID int, startDate, endDate time.Time) (map[string]int, error) {
+func (r *TransaksiRepository) GetTransactionCountsByDateForStaff(staffID int64, startDate, endDate time.Time) (map[string]int, error) {
+	// Get staff name for backward compatibility
+	var staffName string
+	err := database.QueryRow("SELECT nama_lengkap FROM users WHERE id = ?", staffID).Scan(&staffName)
+	if err != nil {
+		staffName = ""
+	}
+
 	query := `
 		SELECT DATE(tanggal) as tanggal, COUNT(*) as total_transaksi
 		FROM transaksi
-		WHERE staff_id = ? AND DATE(tanggal) >= DATE(?) AND DATE(tanggal) <= DATE(?)
+		WHERE (staff_id = ? OR LOWER(kasir) = LOWER(?))
+		  AND DATE(tanggal) >= DATE(?) AND DATE(tanggal) <= DATE(?)
 		GROUP BY DATE(tanggal)
 	`
 
-	rows, err := database.Query(query, staffID, startDate, endDate)
+	rows, err := database.Query(query, staffID, staffName, startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query transaction counts: %w", err)
 	}
@@ -987,13 +1202,33 @@ func (r *TransaksiRepository) GetPaymentMethodBreakdownByDateRange(startDate, en
 		return make(map[string]int), nil
 	}
 
-	query := `SELECT p.metode, COUNT(DISTINCT p.transaksi_id) as jumlah
-	FROM pembayaran p
-	INNER JOIN transaksi t ON p.transaksi_id = t.id
-	WHERE t.created_at BETWEEN ? AND ?
-	GROUP BY p.metode`
+	query := `SELECT 
+		t.metode, 
+		SUM(t.jumlah) as jumlah
+	FROM (
+		-- Sales
+		SELECT 
+			p.metode, 
+			COUNT(DISTINCT p.transaksi_id) as jumlah
+		FROM pembayaran p
+		INNER JOIN transaksi t ON p.transaksi_id = t.id
+		WHERE t.created_at BETWEEN ? AND ? AND t.status IN ('selesai', 'partial_return', 'fully_returned')
+		GROUP BY p.metode
 
-	rows, err := database.Query(query, startDate, endDate)
+		UNION ALL
+
+		-- Refunds (Negative Count)
+		SELECT 
+			COALESCE(r.refund_method, 'Lainnya') as metode, 
+			-COUNT(*) as jumlah
+		FROM returns r
+		WHERE r.return_date BETWEEN ? AND ?
+		GROUP BY r.refund_method
+	) t
+	GROUP BY t.metode`
+
+	// Query args: start, end, start, end
+	rows, err := database.Query(query, startDate, endDate, startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get payment method breakdown: %w", err)
 	}
@@ -1017,13 +1252,33 @@ func (r *TransaksiRepository) GetTransactionOmsetByPaymentMethod(startDate, endD
 		return make(map[string]int), nil
 	}
 
-	query := `SELECT p.metode, SUM(t.total) as total_omset
-	FROM pembayaran p
-	INNER JOIN transaksi t ON p.transaksi_id = t.id
-	WHERE t.created_at BETWEEN ? AND ?
-	GROUP BY p.metode`
+	query := `SELECT 
+		t.metode, 
+		SUM(t.total_omset) as total_omset
+	FROM (
+		-- Sales
+		SELECT 
+			p.metode, 
+			SUM(t.total) as total_omset
+		FROM pembayaran p
+		INNER JOIN transaksi t ON p.transaksi_id = t.id
+		WHERE t.created_at BETWEEN ? AND ? AND t.status IN ('selesai', 'partial_return', 'fully_returned')
+		GROUP BY p.metode
 
-	rows, err := database.Query(query, startDate, endDate)
+		UNION ALL
+
+		-- Refunds (Negative Value)
+		SELECT 
+			COALESCE(r.refund_method, 'Lainnya') as metode, 
+			-SUM(r.refund_amount) as total_omset
+		FROM returns r
+		WHERE r.return_date BETWEEN ? AND ?
+		GROUP BY r.refund_method
+	) t
+	GROUP BY t.metode`
+
+	// Query args: start, end, start, end
+	rows, err := database.Query(query, startDate, endDate, startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get transaction omset by payment method: %w", err)
 	}

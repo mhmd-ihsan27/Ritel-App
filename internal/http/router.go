@@ -202,6 +202,13 @@ func SetupRouter(services *container.ServiceContainer, jwtManager *auth.JWTManag
 				staffReport.GET("/comprehensive", staffReportHandler.GetComprehensive)
 				staffReport.GET("/shift-productivity", staffReportHandler.GetShiftProductivity)
 				staffReport.GET("/monthly-trend", staffReportHandler.GetMonthlyTrend)
+				// START NEW ROUTE
+				staffReport.GET("/shift-reports", staffReportHandler.GetShiftReports)
+				staffReport.GET("/shift-settings", staffReportHandler.GetShiftSettings)
+				staffReport.PUT("/shift-settings/:id", staffReportHandler.UpdateShiftSettings)
+				staffReport.GET("/shift/:shift/cashiers", staffReportHandler.GetShiftCashiers)
+				staffReport.GET("/shift/:shift/detail", staffReportHandler.GetShiftDetail)
+				// END NEW ROUTE
 
 				// Dynamic :id routes
 				staffReport.GET("/:id", staffReportHandler.GetStaffReport)
@@ -222,10 +229,13 @@ func SetupRouter(services *container.ServiceContainer, jwtManager *auth.JWTManag
 			printer := protected.Group("/printer")
 			{
 				printer.GET("/list", printerHandler.GetInstalled)
+				// Alias untuk kompatibilitas frontend lama
+				printer.GET("/available", printerHandler.GetInstalled)
 				printer.POST("/test", printerHandler.TestPrint)
 				printer.POST("/receipt", printerHandler.PrintReceipt)
 				printer.GET("/settings", printerHandler.GetSettings)
 				printer.POST("/settings", printerHandler.SaveSettings)
+				printer.POST("/default", printerHandler.SetDefault)
 			}
 
 			// ==================== HARDWARE ====================
@@ -266,6 +276,7 @@ func SetupRouter(services *container.ServiceContainer, jwtManager *auth.JWTManag
 					users.GET("/:id", userHandler.GetByID)
 					users.POST("", userHandler.Create)
 					users.PUT("", userHandler.Update)
+					users.POST("/change-password", userHandler.AdminChangePassword)
 					users.DELETE("/:id", userHandler.Delete)
 				}
 			}

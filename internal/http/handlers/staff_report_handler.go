@@ -19,7 +19,7 @@ func NewStaffReportHandler(services *container.ServiceContainer) *StaffReportHan
 }
 
 func (h *StaffReportHandler) GetStaffReport(c *gin.Context) {
-	staffID, _ := strconv.Atoi(c.Param("id"))
+	staffID, _ := strconv.ParseInt(c.Param("id"), 10, 64)
 	startDateStr := c.Query("start_date")
 	endDateStr := c.Query("end_date")
 
@@ -44,7 +44,7 @@ func (h *StaffReportHandler) GetStaffReport(c *gin.Context) {
 }
 
 func (h *StaffReportHandler) GetStaffReportDetail(c *gin.Context) {
-	staffID, _ := strconv.Atoi(c.Param("id"))
+	staffID, _ := strconv.ParseInt(c.Param("id"), 10, 64)
 	startDateStr := c.Query("start_date")
 	endDateStr := c.Query("end_date")
 
@@ -102,7 +102,7 @@ func (h *StaffReportHandler) GetAllWithTrend(c *gin.Context) {
 }
 
 func (h *StaffReportHandler) GetWithTrend(c *gin.Context) {
-	staffID, _ := strconv.Atoi(c.Param("id"))
+	staffID, _ := strconv.ParseInt(c.Param("id"), 10, 64)
 	startDateStr := c.Query("start_date")
 	endDateStr := c.Query("end_date")
 
@@ -127,7 +127,7 @@ func (h *StaffReportHandler) GetWithTrend(c *gin.Context) {
 }
 
 func (h *StaffReportHandler) GetHistoricalData(c *gin.Context) {
-	staffID, _ := strconv.Atoi(c.Param("id"))
+	staffID, _ := strconv.ParseInt(c.Param("id"), 10, 64)
 
 	data, err := h.services.StaffReportService.GetStaffHistoricalData(staffID)
 	if err != nil {
@@ -156,7 +156,7 @@ func (h *StaffReportHandler) GetShiftProductivity(c *gin.Context) {
 }
 
 func (h *StaffReportHandler) GetStaffShiftData(c *gin.Context) {
-	staffID, _ := strconv.Atoi(c.Param("id"))
+	staffID, _ := strconv.ParseInt(c.Param("id"), 10, 64)
 	startDateStr := c.Query("start_date")
 	endDateStr := c.Query("end_date")
 
@@ -190,7 +190,7 @@ func (h *StaffReportHandler) GetMonthlyTrend(c *gin.Context) {
 }
 
 func (h *StaffReportHandler) GetWithMonthlyTrend(c *gin.Context) {
-	staffID, _ := strconv.Atoi(c.Param("id"))
+	staffID, _ := strconv.ParseInt(c.Param("id"), 10, 64)
 	startDateStr := c.Query("start_date")
 	endDateStr := c.Query("end_date")
 
@@ -212,4 +212,76 @@ func (h *StaffReportHandler) GetWithMonthlyTrend(c *gin.Context) {
 		return
 	}
 	response.Success(c, report, "Staff report with monthly trend retrieved successfully")
+}
+
+// GetShiftReports returns aggregated shift reports for a specific date
+func (h *StaffReportHandler) GetShiftReports(c *gin.Context) {
+	dateStr := c.Query("date")
+
+	report, err := h.services.StaffReportService.GetShiftReports(dateStr)
+	if err != nil {
+		response.InternalServerError(c, "Failed to get shift reports", err)
+		return
+	}
+	response.Success(c, report, "Shift reports retrieved successfully")
+}
+
+// GetShiftSettings returns header/footer configuration for print
+func (h *StaffReportHandler) GetShiftSettings(c *gin.Context) {
+	settings, err := h.services.StaffReportService.GetShiftSettings()
+	if err != nil {
+		response.InternalServerError(c, "Failed to get shift settings", err)
+		return
+	}
+	response.Success(c, settings, "Shift settings retrieved successfully")
+}
+
+// GetShiftCashiers returns active staff for a specific shift
+func (h *StaffReportHandler) GetShiftCashiers(c *gin.Context) {
+	shift := c.Param("shift")
+
+	cashiers, err := h.services.StaffReportService.GetShiftCashiers(shift)
+	if err != nil {
+		response.InternalServerError(c, "Failed to get shift cashiers", err)
+		return
+	}
+	response.Success(c, cashiers, "Shift cashiers retrieved successfully")
+}
+
+// GetShiftDetail returns detailed breakdown for a specific shift
+// GetShiftDetail returns detailed breakdown for a specific shift
+func (h *StaffReportHandler) GetShiftDetail(c *gin.Context) {
+	shift := c.Param("shift")
+	dateStr := c.Query("date")
+
+	detail, err := h.services.StaffReportService.GetShiftDetail(shift, dateStr)
+	if err != nil {
+		response.InternalServerError(c, "Failed to get shift detail", err)
+		return
+	}
+	response.Success(c, detail, "Shift detail retrieved successfully")
+}
+
+// UpdateShiftSettings updates shift configuration
+func (h *StaffReportHandler) UpdateShiftSettings(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+
+	var req struct {
+		StartTime string `json:"startTime"`
+		EndTime   string `json:"endTime"`
+		StaffIDs  string `json:"staffIDs"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request body", err)
+		return
+	}
+
+	err := h.services.StaffReportService.UpdateShiftSettings(id, req.StartTime, req.EndTime, req.StaffIDs)
+	if err != nil {
+		response.InternalServerError(c, "Failed to update shift settings", err)
+		return
+	}
+
+	response.Success(c, nil, "Shift settings updated successfully")
 }

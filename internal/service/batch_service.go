@@ -35,7 +35,10 @@ func (s *BatchService) CreateInitialBatch(produkID int, qty float64, masaSimpanH
 		return nil, fmt.Errorf("shelf life must be positive")
 	}
 
-	now := time.Now()
+	// Normalize to start of day (midnight) for consistent date calculations
+	// Use WIB timezone (UTC+7)
+	now := time.Now().UTC().Add(7 * time.Hour)
+	now = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
 	// Create initial batch
 	batch := &models.Batch{
@@ -95,11 +98,16 @@ func (s *BatchService) CreateBatchFromRestok(req *models.UpdateStokRequest) (*mo
 	}
 
 	// Create new batch if no matching batch found
+	// Normalize restock date to midnight for consistent date calculations
+	// Use WIB timezone (UTC+7)
+	restockDate := time.Now().UTC().Add(7 * time.Hour)
+	restockDate = time.Date(restockDate.Year(), restockDate.Month(), restockDate.Day(), 0, 0, 0, 0, restockDate.Location())
+
 	batch := &models.Batch{
 		ProdukID:       produk.ID,
 		Qty:            req.Perubahan,
 		QtyTersisa:     req.Perubahan,
-		TanggalRestok:  time.Now(),
+		TanggalRestok:  restockDate,
 		MasaSimpanHari: req.MasaSimpanHari,
 		Supplier:       req.Supplier,
 		Keterangan:     req.Keterangan,
@@ -150,7 +158,17 @@ func (s *BatchService) GetBatchByID(batchID string) (*models.Batch, error) {
 
 // GetAllBatches retrieves all batches
 func (s *BatchService) GetAllBatches() ([]*models.Batch, error) {
-	return s.batchRepo.GetAllBatches()
+	fmt.Printf("[BATCH SERVICE] GetAllBatches called\n")
+
+	batches, err := s.batchRepo.GetAllBatches()
+
+	if err != nil {
+		fmt.Printf("[BATCH SERVICE] ERROR: GetAllBatches failed: %v\n", err)
+		return nil, err
+	}
+
+	fmt.Printf("[BATCH SERVICE] GetAllBatches success - returned %d batches\n", len(batches))
+	return batches, nil
 }
 
 // GetExpiringBatches retrieves batches expiring within threshold days
@@ -167,9 +185,15 @@ func (s *BatchService) GetExpiringBatches(daysThreshold int) ([]*models.Batch, e
 
 	// Recalculate status for each batch based on product's notification days
 	for _, batch := range batches {
+		// Skip if batch is nil (safety check)
+		if batch == nil {
+			continue
+		}
+
 		produk, err := s.produkRepo.GetByID(batch.ProdukID)
-		if err != nil {
-			// If product not found, skip recalculation
+		if err != nil || produk == nil {
+			// If product not found or deleted, use default notification days
+			batch.Status = s.calculateBatchStatus(batch.TanggalKadaluarsa, 30)
 			continue
 		}
 
@@ -256,13 +280,13 @@ func (s *BatchService) GetBatchSummaryByProduk(produkID int) (map[string]interfa
 	}
 
 	summary := map[string]interface{}{
-		"total_batches":      len(batches),
-		"total_qty":          0,
-		"fresh_batches":      0,
-		"expiring_batches":   0,
-		"expired_batches":    0,
-		"oldest_batch_date":  nil,
-		"newest_batch_date":  nil,
+		"total_batches":     len(batches),
+		"total_qty":         0,
+		"fresh_batches":     0,
+		"expiring_batches":  0,
+		"expired_batches":   0,
+		"oldest_batch_date": nil,
+		"newest_batch_date": nil,
 	}
 
 	if len(batches) == 0 {
@@ -307,8 +331,10 @@ func (s *BatchService) DeductFromBatches(produkID int, qtyToDeduct float64) erro
 // calculateBatchStatus determines batch status based on expiry date and notification threshold
 // notificationDays: how many days before expiry to consider "hampir_expired"
 // Uses date comparison (ignoring time) for consistency with SQL julianday calculation
+// Uses WIB timezone (UTC+7) for consistency
 func (s *BatchService) calculateBatchStatus(expiryDate time.Time, notificationDays int) string {
-	now := time.Now()
+	// Use WIB timezone (UTC+7) - consistent with transaction creation
+	now := time.Now().UTC().Add(7 * time.Hour)
 
 	// Normalize to start of day for consistent date comparison (like SQL DATE())
 	nowDate := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())

@@ -48,6 +48,11 @@ func NewServiceContainer() *ServiceContainer {
 		DashboardService:   service.NewDashboardService(),
 	}
 
+    // Ensure printer settings schema exists/updated
+    if err := container.PrinterService.EnsurePrintSettingsSchema(); err != nil {
+        log.Printf("[CONTAINER] Printer settings schema init error: %v", err)
+    }
+
 	// Ensure default admin exists
 	container.UserService.EnsureDefaultAdmin()
 

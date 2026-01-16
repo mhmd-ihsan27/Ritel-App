@@ -27,7 +27,7 @@ export const printerAPI = {
    */
   getAvailablePrinters: async () => {
     if (isWebMode()) {
-      const response = await client.get('/api/printer/available');
+      const response = await client.get('/api/printer/list');
       return response.data;
     } else {
       const { GetAvailablePrinters } = await import('../../wailsjs/go/main/App');
@@ -45,8 +45,8 @@ export const printerAPI = {
       const response = await client.post('/api/printer/test', { printer_name: printerName });
       return response.data;
     } else {
-      const { TestPrinter } = await import('../../wailsjs/go/main/App');
-      return await TestPrinter(printerName);
+      const { TestPrintByName } = await import('../../wailsjs/go/main/App');
+      return await TestPrintByName(printerName);
     }
   },
 
@@ -76,6 +76,48 @@ export const printerAPI = {
     } else {
       const { SavePrintSettings } = await import('../../wailsjs/go/main/App');
       return await SavePrintSettings(settings);
+    }
+  },
+
+  /**
+   * Set default printer name only
+   * @param {string} printerName
+   * @returns {Promise<object>}
+   */
+  setDefaultPrinter: async (printerName) => {
+    try {
+      if (isWebMode()) {
+        const response = await client.post('/api/printer/default', { printerName });
+        return response.data;
+      } else {
+        // Desktop mode: Get current settings, update printer name, and save
+        console.log('[PRINTER API] Getting current settings...');
+        const settings = await printerAPI.getSettings();
+        
+        if (!settings) {
+          console.error('[PRINTER API] Failed to get current settings - settings is null');
+          throw new Error('Failed to retrieve current printer settings');
+        }
+        
+        console.log('[PRINTER API] Current settings:', settings);
+        console.log('[PRINTER API] Updating printer name to:', printerName);
+        
+        settings.printerName = printerName;
+        
+        console.log('[PRINTER API] Saving updated settings...');
+        const result = await printerAPI.saveSettings(settings);
+        
+        console.log('[PRINTER API] Settings saved successfully:', result);
+        return result;
+      }
+    } catch (error) {
+      console.error('[PRINTER API] Error in setDefaultPrinter:', error);
+      console.error('[PRINTER API] Error details:', {
+        message: error.message,
+        stack: error.stack,
+        printerName: printerName
+      });
+      throw error;
     }
   },
 

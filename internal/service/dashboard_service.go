@@ -2,7 +2,6 @@ package service
 
 import (
 	"fmt"
-	"log"
 	"ritel-app/internal/models"
 	"ritel-app/internal/repository"
 	"strings"
@@ -79,7 +78,8 @@ func (s *DashboardService) GetStatistikBulanan() (*models.DashboardStatistikBula
 
 	// Current month start and end
 	currentMonthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
-	currentMonthEnd := now
+	// Use End of Month + Buffer (Total 32 days from start) to catch future-drifted transactions
+	currentMonthEnd := currentMonthStart.AddDate(0, 1, 1)
 
 	// Previous month start and end
 	previousMonthStart := currentMonthStart.AddDate(0, -1, 0)
@@ -106,6 +106,11 @@ func (s *DashboardService) GetStatistikBulanan() (*models.DashboardStatistikBula
 	productHPPCache := make(map[int]int) // Cache for product HPP
 
 	for _, t := range currentMonthTransactions {
+		// Skip fully returned transactions - they don't contribute to revenue/profit
+		if t.Status == "fully_returned" {
+			continue
+		}
+
 		currentTotalPendapatan += float64(t.Total)
 		currentTotalTransaksi++
 
@@ -123,7 +128,7 @@ func (s *DashboardService) GetStatistikBulanan() (*models.DashboardStatistikBula
 						hpp = cachedHPP
 					} else {
 						produk, err := s.produkRepo.GetByID(*d.ProdukID)
-						if err == nil {
+						if err == nil && produk != nil {
 							hpp = produk.HargaBeli
 							productHPPCache[*d.ProdukID] = hpp
 						}
@@ -142,12 +147,8 @@ func (s *DashboardService) GetStatistikBulanan() (*models.DashboardStatistikBula
 		}
 	}
 
-	// Deduct return amount from current month
-	currentReturnAmount, err := s.returnRepo.GetTotalRefundByDateRange(currentMonthStart, currentMonthEnd)
-	if err == nil {
-		currentTotalPendapatan -= float64(currentReturnAmount)
-	}
-
+	// NOTE: We don't deduct returns here because fully_returned transactions are already excluded above
+	// Calculate profit: Revenue (only from valid transactions) - Cost
 	currentKeuntunganBersih := currentTotalPendapatan - currentTotalHargaBeli
 
 	// Calculate previous month totals for comparison
@@ -156,11 +157,14 @@ func (s *DashboardService) GetStatistikBulanan() (*models.DashboardStatistikBula
 		previousTotalPendapatan += float64(t.Total)
 	}
 
-	// Deduct return amount from previous month
-	prevReturnAmount, err := s.returnRepo.GetTotalRefundByDateRange(previousMonthStart, previousMonthEnd)
-	if err == nil {
-		previousTotalPendapatan -= float64(prevReturnAmount)
+	// Get return impact for previous month
+	prevReturnImpact, err := s.returnRepo.GetReturnImpactByDateRange(previousMonthStart, previousMonthEnd)
+	if err != nil {
+		prevReturnImpact = &models.ReturnImpact{}
 	}
+
+	// Apply return deductions to previous month
+	previousTotalPendapatan -= float64(prevReturnImpact.TotalSaleReturned)
 
 	// Calculate percentage change
 	var vsBulanLalu float64
@@ -170,12 +174,18 @@ func (s *DashboardService) GetStatistikBulanan() (*models.DashboardStatistikBula
 		vsBulanLalu = 100
 	}
 
-	// Pastikan Total Pendapatan dan Keuntungan Bersih tidak negatif (minimum 0)
+	// Ensure no negative values
 	if currentTotalPendapatan < 0 {
 		currentTotalPendapatan = 0
 	}
 	if currentKeuntunganBersih < 0 {
 		currentKeuntunganBersih = 0
+	}
+	if currentTotalTransaksi < 0 {
+		currentTotalTransaksi = 0
+	}
+	if currentProdukTerjual < 0 {
+		currentProdukTerjual = 0
 	}
 
 	return &models.DashboardStatistikBulanan{
@@ -267,10 +277,11 @@ func (s *DashboardService) GetNotifikasi() ([]models.DashboardNotifikasi, error)
 func (s *DashboardService) GetPerformaHariIni() ([]models.DashboardPerforma, error) {
 	now := time.Now()
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	todayEnd := todayStart.AddDate(0, 0, 2) // End of today + 1 day buffer for timezone drift
 	yesterdayStart := todayStart.Add(-24 * time.Hour)
 
 	// Get today's transactions
-	todayTransactions, err := s.transaksiRepo.GetByDateRange(todayStart, now)
+	todayTransactions, err := s.transaksiRepo.GetByDateRange(todayStart, todayEnd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get today transactions: %w", err)
 	}
@@ -334,9 +345,10 @@ func (s *DashboardService) GetPerformaHariIni() ([]models.DashboardPerforma, err
 
 	// Count unique customers today (if pelangganID is not 0)
 	uniqueCustomers := 0
-	customerMap := make(map[int]bool)
+	customerMap := make(map[int64]bool)
 	for _, t := range todayTransactions {
-		if t.PelangganID > 0 {
+		// Support offline IDs
+		if t.PelangganID != 0 {
 			if !customerMap[t.PelangganID] {
 				customerMap[t.PelangganID] = true
 				uniqueCustomers++
@@ -346,9 +358,10 @@ func (s *DashboardService) GetPerformaHariIni() ([]models.DashboardPerforma, err
 
 	// Yesterday unique customers
 	yesterdayCustomers := 0
-	yesterdayCustomerMap := make(map[int]bool)
+	yesterdayCustomerMap := make(map[int64]bool)
 	for _, t := range yesterdayTransactions {
-		if t.PelangganID > 0 {
+		// Support offline IDs
+		if t.PelangganID != 0 {
 			if !yesterdayCustomerMap[t.PelangganID] {
 				yesterdayCustomerMap[t.PelangganID] = true
 				yesterdayCustomers++
@@ -403,10 +416,14 @@ func (s *DashboardService) GetPerformaHariIni() ([]models.DashboardPerforma, err
 // GetProdukTerlaris returns best-selling products
 func (s *DashboardService) GetProdukTerlaris(limit int) ([]models.DashboardProdukTerlaris, error) {
 	// Get transactions from last 30 days
+	// Get transactions from last 30 days
 	now := time.Now()
-	thirtyDaysAgo := now.AddDate(0, 0, -30)
+	// Normalize to start of today to ensure full day coverage
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	todayEnd := todayStart.AddDate(0, 0, 2) // + Buffer for timezone drift
+	thirtyDaysAgo := todayStart.AddDate(0, 0, -30)
 
-	transactions, err := s.transaksiRepo.GetByDateRange(thirtyDaysAgo, now)
+	transactions, err := s.transaksiRepo.GetByDateRange(thirtyDaysAgo, todayEnd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get transactions: %w", err)
 	}
@@ -436,7 +453,7 @@ func (s *DashboardService) GetProdukTerlaris(limit int) ([]models.DashboardProdu
 	var productList []productWithSales
 	for produkID, terjual := range productSales {
 		produk, err := s.produkRepo.GetByID(produkID)
-		if err != nil {
+		if err != nil || produk == nil {
 			continue
 		}
 		productList = append(productList, productWithSales{
@@ -479,10 +496,12 @@ func (s *DashboardService) GetAktivitasTerakhir(limit int) ([]models.DashboardAk
 	aktivitas := []models.DashboardAktivitasWithTime{}
 
 	now := time.Now()
-	oneDayAgo := now.AddDate(0, 0, -1)
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	todayEnd := todayStart.AddDate(0, 0, 2) // + Buffer
+	oneDayAgo := todayStart.AddDate(0, 0, -1)
 
 	// Get recent transactions
-	recentTransactions, err := s.transaksiRepo.GetByDateRange(oneDayAgo, now)
+	recentTransactions, err := s.transaksiRepo.GetByDateRange(oneDayAgo, todayEnd)
 	if err == nil && len(recentTransactions) > 0 {
 		for _, tx := range recentTransactions {
 			aktivitas = append(aktivitas, models.DashboardAktivitasWithTime{
@@ -734,18 +753,18 @@ func (s *DashboardService) GetSalesChartData() (*models.DashboardSalesData, erro
 func (s *DashboardService) GetCompositionChartData() (map[string]interface{}, error) {
 	now := time.Now()
 
-	// HARI: Gunakan data kemarin agar lebih relevan saat dibuka pagi hari
-	yesterdayStart := time.Date(now.Year(), now.Month(), now.Day()-1, 0, 0, 0, 0, now.Location())
-	yesterdayEnd := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	hariComp := s.calculateCategoryComposition(yesterdayStart, yesterdayEnd)
+	// HARI: Gunakan data hari ini s.d sekarang (End of Day + Buffer)
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	todayEnd := todayStart.AddDate(0, 0, 2) // + Buffer for timezone drift
+	hariComp := s.calculateCategoryComposition(todayStart, todayEnd)
 
-	// MINGGU: Last 7 days
-	weekStart := now.AddDate(0, 0, -7)
-	mingguComp := s.calculateCategoryComposition(weekStart, now)
+	// MINGGU: Last 7 days - ACCUMULATED TOTAL
+	weekStart := todayStart.AddDate(0, 0, -7)
+	mingguComp := s.calculateCategoryComposition(weekStart, todayEnd)
 
 	// BULAN: Last 30 days
-	monthStart := now.AddDate(0, 0, -30)
-	bulanComp := s.calculateCategoryComposition(monthStart, now)
+	monthStart := todayStart.AddDate(0, 0, -30)
+	bulanComp := s.calculateCategoryComposition(monthStart, todayEnd)
 
 	// Return data without wrapping - handler will wrap it
 	return map[string]interface{}{
@@ -758,16 +777,12 @@ func (s *DashboardService) GetCompositionChartData() (map[string]interface{}, er
 // calculateCategoryComposition calculates percentage composition by category for a donut chart
 func (s *DashboardService) calculateCategoryComposition(start, end time.Time) models.DashboardCompositionPeriod {
 
-	log.Printf("calculateCategoryComposition: Mencari data dari %s hingga %s", start.Format(time.RFC3339), end.Format(time.RFC3339))
-
 	transactions, err := s.transaksiRepo.GetByDateRange(start, end)
 	if err != nil {
 		return models.DashboardCompositionPeriod{Labels: []string{}, Data: []float64{}}
 	}
 
-	log.Printf("calculateCategoryComposition: Menemukan %d transaksi dalam periode tersebut.", len(transactions))
 	if len(transactions) == 0 {
-		log.Println("calculateCategoryComposition: Tidak ada transaksi, mengembalikan data kosong.")
 		return models.DashboardCompositionPeriod{Labels: []string{}, Data: []float64{}}
 	}
 
@@ -783,13 +798,32 @@ func (s *DashboardService) calculateCategoryComposition(start, end time.Time) mo
 		for _, d := range details.Items {
 			if d.ProdukID != nil {
 				produk, err := s.produkRepo.GetByID(*d.ProdukID)
-				if err != nil {
+				if err != nil || produk == nil {
 					continue
 				}
 				// --- TAMBAHKAN BERSIHAN SPASI ---
 				cleanCategory := strings.TrimSpace(produk.Kategori)
 				categoryTotals[cleanCategory] += float64(d.Subtotal)
 				grandTotal += float64(d.Subtotal)
+			}
+		}
+	}
+
+	// Subtract refunds
+	returnsList, err := s.returnRepo.GetReturnsByDateRange(start, end)
+	if err == nil {
+		for _, r := range returnsList {
+			returnItems, err := s.returnRepo.GetReturnItems(r.ID)
+			if err == nil {
+				for _, ri := range returnItems {
+					produk, err := s.produkRepo.GetByID(ri.ProductID)
+					if err == nil && produk != nil {
+						cleanCategory := strings.TrimSpace(produk.Kategori)
+						refundValue := float64(ri.Quantity * produk.HargaJual)
+						categoryTotals[cleanCategory] -= refundValue
+						grandTotal -= refundValue
+					}
+				}
 			}
 		}
 	}
@@ -860,19 +894,15 @@ func (s *DashboardService) calculateCategoryComposition(start, end time.Time) mo
 func (s *DashboardService) GetCategoryChartData() (map[string]interface{}, error) {
 	now := time.Now()
 
-	// HARI: Last 7 days daily data
-	hariPeriod := s.calculateCategoryTrends(now, 7, "daily")
-
-	// MINGGU: Last 7 weeks weekly data
-	mingguPeriod := s.calculateCategoryTrends(now, 7, "weekly")
+	// MINGGU: Last 7 days with DAILY breakdown (per hari)
+	mingguPeriod := s.calculateCategoryTrends(now, 7, "daily")
 
 	// BULAN: Last 7 months monthly data
 	bulanPeriod := s.calculateCategoryTrends(now, 7, "monthly")
 
 	// Return data without wrapping - handler will wrap it
 	return map[string]interface{}{
-		"hari":   hariPeriod,
-		"minggu": mingguPeriod,
+		"minggu": mingguPeriod, // Now shows 7 days with daily labels
 		"bulan":  bulanPeriod,
 	}, nil
 }
@@ -881,10 +911,17 @@ func (s *DashboardService) GetCategoryChartData() (map[string]interface{}, error
 func (s *DashboardService) calculateCategoryTrends(endTime time.Time, periods int, periodType string) models.DashboardCategoryPeriod {
 
 	var periodLabels []string
+	dayNames := []string{"Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"}
 
 	switch periodType {
 	case "daily":
-		periodLabels = []string{"Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"}
+		// Generate day labels for the last N days based on actual dates
+		for i := periods - 1; i >= 0; i-- {
+			date := endTime.AddDate(0, 0, -i)
+			dayOfWeek := int(date.Weekday()) // 0=Sunday, 1=Monday, ..., 6=Saturday
+			// Convert to Indonesian format (0=Min/Sunday, 1=Sen/Monday, ...)
+			periodLabels = append(periodLabels, dayNames[dayOfWeek])
+		}
 	case "weekly":
 		// For weekly, labels could be "Minggu 1", "Minggu 2", etc. or just dates
 		for i := 0; i < periods; i++ {
@@ -895,13 +932,6 @@ func (s *DashboardService) calculateCategoryTrends(endTime time.Time, periods in
 		for i := 0; i < periods; i++ {
 			date := endTime.AddDate(0, -i, 0)
 			periodLabels = append([]string{date.Format("Jan")}, periodLabels...)
-		}
-	}
-
-	// Reverse daily labels to be chronological
-	if periodType == "daily" {
-		for i, j := 0, len(periodLabels)-1; i < j; i, j = i+1, j-1 {
-			periodLabels[i], periodLabels[j] = periodLabels[j], periodLabels[i]
 		}
 	}
 
@@ -920,17 +950,13 @@ func (s *DashboardService) calculateCategoryTrends(endTime time.Time, periods in
 		overallStart = overallEnd.AddDate(0, -periods, 0)
 	}
 
-	log.Printf("calculateCategoryTrends (%s): Mencari data dari %s hingga %s", periodType, overallStart.Format(time.RFC3339), overallEnd.Format(time.RFC3339))
-
 	// Fetch all transactions in the overall range
 	overallTransactions, err := s.transaksiRepo.GetByDateRange(overallStart, overallEnd)
 	if err != nil {
 		return models.DashboardCategoryPeriod{Labels: periodLabels, Datasets: []models.CategoryChartDataset{}}
 	}
 
-	log.Printf("calculateCategoryTrends (%s): Menemukan %d transaksi keseluruhan.", periodType, len(overallTransactions))
 	if len(overallTransactions) == 0 {
-		log.Printf("calculateCategoryTrends (%s): Tidak ada transaksi keseluruhan, mengembalikan data kosong.", periodType)
 		return models.DashboardCategoryPeriod{Labels: periodLabels, Datasets: []models.CategoryChartDataset{}}
 	}
 
@@ -946,7 +972,7 @@ func (s *DashboardService) calculateCategoryTrends(endTime time.Time, periods in
 		for _, d := range details.Items {
 			if d.ProdukID != nil {
 				produk, err := s.produkRepo.GetByID(*d.ProdukID)
-				if err != nil {
+				if err != nil || produk == nil {
 					continue
 				}
 				categoryOverallTotals[produk.Kategori] += float64(d.Subtotal)
@@ -1028,10 +1054,32 @@ func (s *DashboardService) calculateCategoryTrends(endTime time.Time, periods in
 			for _, d := range details.Items {
 				if d.ProdukID != nil {
 					produk, err := s.produkRepo.GetByID(*d.ProdukID)
-					if err != nil {
+					if err != nil || produk == nil {
 						continue
 					}
-					currentPeriodCategoryTotals[produk.Kategori] += float64(d.Subtotal)
+					cleanCategory := strings.TrimSpace(produk.Kategori)
+					currentPeriodCategoryTotals[cleanCategory] += float64(d.Subtotal)
+				}
+			}
+		}
+
+		// Subtract refunds for this period
+		returnsList, err := s.returnRepo.GetReturnsByDateRange(periodStart, periodEnd)
+		if err == nil {
+
+			for _, r := range returnsList {
+				// Get return items to know which product category to subtract
+				returnItems, err := s.returnRepo.GetReturnItems(r.ID)
+				if err == nil {
+					for _, ri := range returnItems {
+						produk, err := s.produkRepo.GetByID(ri.ProductID)
+						if err == nil && produk != nil {
+							refundValue := float64(ri.Quantity * produk.HargaJual)
+							cleanCategory := strings.TrimSpace(produk.Kategori)
+							currentPeriodCategoryTotals[cleanCategory] -= refundValue
+							// log.Printf("[DASHBOARD-DEBUG] Subtracting Refund: ReturnID=%d, Product=%s, Category=%s, Amount=%.2f", r.ID, produk.Nama, cleanCategory, refundValue)
+						}
+					}
 				}
 			}
 		}

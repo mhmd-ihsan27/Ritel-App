@@ -190,4 +190,84 @@ export const staffReportAPI = {
       return await GetStaffReportWithMonthlyTrend(staffID, startDate, endDate);
     }
   },
+
+  /**
+   * Get overall shift reports
+   * @param {string} date - Format: YYYY-MM-DD (optional)
+   * @returns {Promise<object>}
+   */
+  getShiftReports: async (date = "") => {
+    if (isWebMode()) {
+        const response = await client.get('/api/staff-report/shift-reports', {
+            params: { date }
+        });
+        return response.data;
+    } else {
+        const { GetShiftReports } = await import('../../wailsjs/go/main/App');
+        return await GetShiftReports(date);
+    }
+  },
+
+  /**
+   * Get shift cashiers
+   * @param {string} shift
+   * @returns {Promise<Array>}
+   */
+  getShiftCashiers: async (shift) => {
+    if (isWebMode()) {
+        const response = await client.get(`/api/staff-report/shift/${shift}/cashiers`);
+        return response.data;
+    } else {
+        const { GetShiftCashiers } = await import('../../wailsjs/go/main/App');
+        return await GetShiftCashiers(shift);
+    }
+  },
+
+  /**
+   * Get shift detail
+   * @param {string} shift
+   * @param {string} date
+   * @returns {Promise<object>}
+   */
+  getShiftDetail: async (shift, date) => {
+    if (isWebMode()) {
+        const response = await client.get(`/api/staff-report/shift/${shift}/detail`, {
+            params: { date }
+        });
+        return response.data;
+    } else {
+        const { GetShiftDetail } = await import('../../wailsjs/go/main/App');
+        return await GetShiftDetail(shift, date);
+    }
+  },
+  /**
+   * Get shift settings
+   * @returns {Promise<Array>}
+   */
+  getShiftSettings: async () => {
+    if (isWebMode()) {
+        const response = await client.get('/api/staff-report/shift-settings');
+        return response.data;
+    } else {
+        const { GetShiftSettings } = await import('../../wailsjs/go/main/App');
+        return await GetShiftSettings();
+    }
+  },
+
+  /**
+   * Update shift settings
+   * @param {number} id
+   * @param {string} startTime
+   * @param {string} endTime
+   * @param {string} staffIDs
+   * @returns {Promise<void>}
+   */
+  updateShiftSettings: async (id, startTime, endTime, staffIDs) => {
+    if (isWebMode()) {
+        await client.put(`/api/staff-report/shift-settings/${id}`, { startTime, endTime, staffIDs });
+    } else {
+        const { UpdateShiftSettings } = await import('../../wailsjs/go/main/App');
+        await UpdateShiftSettings(id, startTime, endTime, staffIDs);
+    }
+  },
 };

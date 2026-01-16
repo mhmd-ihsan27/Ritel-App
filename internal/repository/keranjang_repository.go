@@ -36,7 +36,16 @@ func (r *KeranjangRepository) AddItem(produkID int, jumlah int, hargaBeli int) e
 		VALUES (?, ?, ?, ?)
 	`
 
-	_, err = database.Exec(query, produkID, jumlah, hargaBeli, subtotal)
+	if database.UseDualMode && database.IsSQLite() {
+		id := database.GenerateOfflineID()
+		query := `
+		INSERT INTO keranjang (id, produk_id, jumlah, harga_beli, subtotal)
+		VALUES (?, ?, ?, ?, ?)
+	`
+		_, err = database.Exec(query, id, produkID, jumlah, hargaBeli, subtotal)
+	} else {
+		_, err = database.Exec(query, produkID, jumlah, hargaBeli, subtotal)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to add item to cart: %w", err)
 	}

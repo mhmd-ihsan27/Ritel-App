@@ -64,6 +64,7 @@ const Login = () => {
                     </div>
                     <h1 className="text-3xl font-bold text-gray-800">Sistem Kasir</h1>
                     <p className="text-gray-600 mt-2">Silakan login untuk melanjutkan</p>
+                    <p className="text-xs text-gray-400 mt-1">v1.0.1 (Build: {new Date().toLocaleDateString()} {new Date().toLocaleTimeString()})</p>
                 </div>
 
                 {/* Login Form */}

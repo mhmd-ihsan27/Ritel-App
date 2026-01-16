@@ -74,26 +74,35 @@ func (s *SalesReportService) GetComprehensiveSalesReport(startDate, endDate time
 		return nil, fmt.Errorf("failed to get previous total products sold: %w", err)
 	}
 
-	// Get total return amount for current period
-	totalReturnAmount, err := s.returnRepo.GetTotalRefundByDateRange(startDate, endDate)
+	// Get comprehensive return impact for current period
+	currentReturnImpact, err := s.returnRepo.GetReturnImpactByDateRange(startDate, endDate)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get total return amount: %w", err)
+		fmt.Printf("Warning: Failed to get current return impact: %v\n", err)
+		currentReturnImpact = &models.ReturnImpact{}
 	}
 
-	// Get total return amount for previous period
-	prevTotalReturnAmount, err := s.returnRepo.GetTotalRefundByDateRange(prevStartDate, prevEndDate)
+	// Get list of returns for trend calculation
+	returnsList, err := s.returnRepo.GetReturnsByDateRange(startDate, endDate)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get previous total return amount: %w", err)
+		fmt.Printf("Warning: Failed to get returns list: %v\n", err)
+		returnsList = []*models.Return{}
 	}
 
-	// Generate summary with return deductions
-	summary := s.calculateSummary(currentDetailedTransactions, prevDetailedTransactions, totalProductsSold, prevTotalProductsSold, totalReturnAmount, prevTotalReturnAmount)
+	// Get comprehensive return impact for previous period
+	prevReturnImpact, err := s.returnRepo.GetReturnImpactByDateRange(prevStartDate, prevEndDate)
+	if err != nil {
+		fmt.Printf("Warning: Failed to get previous return impact: %v\n", err)
+		prevReturnImpact = &models.ReturnImpact{}
+	}
+
+	// Generate summary with comprehensive return deductions
+	summary := s.calculateSummary(currentDetailedTransactions, prevDetailedTransactions, totalProductsSold, prevTotalProductsSold, currentReturnImpact, prevReturnImpact)
 
 	// Generate sales trend data for different periods
 	salesTrendData := map[string]models.SalesReportPeriodData{
-		"hari":   s.calculateSalesTrendData(transaksiList, "hari"),
-		"minggu": s.calculateSalesTrendData(transaksiList, "minggu"),
-		"bulan":  s.calculateSalesTrendData(transaksiList, "bulan"),
+		"hari":   s.calculateSalesTrendData(transaksiList, returnsList, "hari"),
+		"minggu": s.calculateSalesTrendData(transaksiList, returnsList, "minggu"),
+		"bulan":  s.calculateSalesTrendData(transaksiList, returnsList, "bulan"),
 	}
 
 	// Generate discount trend data for different periods
@@ -111,9 +120,9 @@ func (s *SalesReportService) GetComprehensiveSalesReport(startDate, endDate time
 
 	// Generate hourly sales trend data for different periods
 	hourlySalesTrendData := map[string]models.SalesReportPeriodData{
-		"hari":   s.calculateHourlyTrendData(transaksiList, "hari"),
-		"minggu": s.calculateHourlyTrendData(transaksiList, "minggu"),
-		"bulan":  s.calculateHourlyTrendData(transaksiList, "bulan"),
+		"hari":   s.calculateHourlyTrendData(transaksiList, returnsList, "hari"),
+		"minggu": s.calculateHourlyTrendData(transaksiList, returnsList, "minggu"),
+		"bulan":  s.calculateHourlyTrendData(transaksiList, returnsList, "bulan"),
 	}
 
 	// Generate top products
@@ -150,7 +159,7 @@ func (s *SalesReportService) GetComprehensiveSalesReport(startDate, endDate time
 }
 
 // calculateSummary calculates overall sales summary with trends
-func (s *SalesReportService) calculateSummary(currentDetailed, previousDetailed []*models.TransaksiDetail, currentProductsSold, prevProductsSold int, currentReturnAmount, prevReturnAmount int) *models.SalesSummaryResponse {
+func (s *SalesReportService) calculateSummary(currentDetailed, previousDetailed []*models.TransaksiDetail, currentProductsSold, prevProductsSold int, currentReturnImpact, prevReturnImpact *models.ReturnImpact) *models.SalesSummaryResponse {
 	// Current period totals
 	totalOmset := 0
 	totalProfit := 0
@@ -192,9 +201,25 @@ func (s *SalesReportService) calculateSummary(currentDetailed, previousDetailed 
 		totalProfit += tDetail.Transaksi.Total - transactionHPP
 	}
 
-	// Deduct return amount from omset and profit
-	totalOmset -= currentReturnAmount
-	totalProfit -= currentReturnAmount
+	// Apply comprehensive return deductions
+	totalOmset -= currentReturnImpact.TotalSaleReturned                  // Deduct sale price
+	totalProfit -= currentReturnImpact.TotalProfitLost                   // Deduct profit lost
+	totalTransaksi -= currentReturnImpact.ReturnCount                    // Deduct return count
+	totalProdukTerjual -= int(currentReturnImpact.TotalQuantityReturned) // Deduct quantity
+
+	// Ensure no negative values
+	if totalOmset < 0 {
+		totalOmset = 0
+	}
+	if totalProfit < 0 {
+		totalProfit = 0
+	}
+	if totalTransaksi < 0 {
+		totalTransaksi = 0
+	}
+	if totalProdukTerjual < 0 {
+		totalProdukTerjual = 0
+	}
 
 	rataRataTransaksi := 0
 	if totalTransaksi > 0 {
@@ -238,9 +263,25 @@ func (s *SalesReportService) calculateSummary(currentDetailed, previousDetailed 
 		prevTotalProfit += tDetail.Transaksi.Total - prevTransactionHPP
 	}
 
-	// Deduct return amount from previous period omset and profit
-	prevTotalOmset -= prevReturnAmount
-	prevTotalProfit -= prevReturnAmount
+	// Apply comprehensive return deductions for previous period
+	prevTotalOmset -= prevReturnImpact.TotalSaleReturned
+	prevTotalProfit -= prevReturnImpact.TotalProfitLost
+	prevTotalTransaksi -= prevReturnImpact.ReturnCount
+	prevTotalProdukTerjual -= int(prevReturnImpact.TotalQuantityReturned)
+
+	// Ensure no negative values for previous period
+	if prevTotalOmset < 0 {
+		prevTotalOmset = 0
+	}
+	if prevTotalProfit < 0 {
+		prevTotalProfit = 0
+	}
+	if prevTotalTransaksi < 0 {
+		prevTotalTransaksi = 0
+	}
+	if prevTotalProdukTerjual < 0 {
+		prevTotalProdukTerjual = 0
+	}
 
 	if prevTotalTransaksi > 0 {
 		prevRataRata = prevTotalOmset / prevTotalTransaksi
@@ -318,7 +359,7 @@ func (s *SalesReportService) calculateMonthlySales(detailedTransactions []*model
 
 					}
 				} else {
-					fmt.Printf("[DEBUG] Using cached HPP for ProdukID %d: %d\n", *item.ProdukID, hpp)
+
 				}
 
 				// Calculate HPP based on product type (curah vs satuan)
@@ -334,20 +375,39 @@ func (s *SalesReportService) calculateMonthlySales(detailedTransactions []*model
 
 		monthlyMap[monthKey].HPP += transactionHPP
 		monthlyMap[monthKey].Profit += (tDetail.Transaksi.Total - transactionHPP)
-		 
+
 	}
 
-	// Add loss data from stok_history table
+	// Apply return impact deductions per month
 	for monthKey, data := range monthlyMap {
 		// Parse month key to get year and month
 		var year, month int
 		fmt.Sscanf(monthKey, "%d-%d", &year, &month)
 
-		// Get loss for this month from stok_history
+		// Get return impact for this month
 		startDate := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.Local)
 		endDate := startDate.AddDate(0, 1, 0) // First day of next month
 
-		// Query loss from stok_history
+		returnImpact, err := s.returnRepo.GetReturnImpactByDateRange(startDate, endDate)
+		if err == nil && returnImpact != nil {
+			// Apply comprehensive return deductions
+			data.Omset -= returnImpact.TotalSaleReturned
+			data.Profit -= returnImpact.TotalProfitLost
+			data.Transaksi -= returnImpact.ReturnCount
+
+			// Ensure no negative values
+			if data.Omset < 0 {
+				data.Omset = 0
+			}
+			if data.Profit < 0 {
+				data.Profit = 0
+			}
+			if data.Transaksi < 0 {
+				data.Transaksi = 0
+			}
+		}
+
+		// Get loss for this month from stok_history
 		lossQuery := `
 			SELECT COALESCE(SUM(nilai_kerugian), 0) as total_loss
 			FROM stok_history
@@ -356,7 +416,7 @@ func (s *SalesReportService) calculateMonthlySales(detailedTransactions []*model
 				AND created_at >= ? AND created_at < ?
 		`
 		var monthLoss int
-		err := database.DB.QueryRow(lossQuery, startDate, endDate).Scan(&monthLoss)
+		err = database.DB.QueryRow(lossQuery, startDate, endDate).Scan(&monthLoss)
 		if err == nil {
 			data.Loss += monthLoss
 		}
@@ -435,17 +495,41 @@ func (s *SalesReportService) calculateTopProducts(transaksiList []*models.Transa
 		return []*models.TopProductData{}
 	}
 
-	// Query to get product sales from transaksi_item
+	// Query to get product sales from transaksi_item, deducting returns
 	query := `
-		SELECT
-			ti.produk_nama,
-			ti.produk_kategori,
-			SUM(ti.jumlah) as total_terjual,
-			SUM(ti.subtotal) as total_omset
-		FROM transaksi_item ti
-		INNER JOIN transaksi t ON ti.transaksi_id = t.id
-		WHERE t.status = 'selesai'
-		GROUP BY ti.produk_nama, ti.produk_kategori
+		SELECT 
+			t.produk_nama,
+			t.produk_kategori,
+			SUM(t.total_terjual) as total_terjual,
+			SUM(t.total_omset) as total_omset
+		FROM (
+			-- Sales
+			SELECT
+				ti.produk_nama,
+				ti.produk_kategori,
+				SUM(ti.jumlah) as total_terjual,
+				SUM(ti.subtotal) as total_omset
+			FROM transaksi_item ti
+			INNER JOIN transaksi t ON ti.transaksi_id = t.id
+			WHERE t.status IN ('selesai', 'partial_return', 'fully_returned')
+			GROUP BY ti.produk_nama, ti.produk_kategori
+
+			UNION ALL
+
+			-- Refunds (Negative)
+			SELECT
+				COALESCE(p.nama, 'Unknown Product') as produk_nama,
+				COALESCE(p.kategori, 'Uncategorized') as produk_kategori,
+				-SUM(ri.quantity) as total_terjual,
+				-SUM(ri.quantity * ti.harga_satuan) as total_omset
+			FROM returns r
+			JOIN return_items ri ON r.id = ri.return_id
+			JOIN produk p ON ri.product_id = p.id
+			JOIN transaksi t ON r.transaksi_id = t.id
+			JOIN transaksi_item ti ON r.transaksi_id = ti.transaksi_id AND ri.product_id = ti.produk_id
+			GROUP BY p.nama, p.kategori
+		) t
+		GROUP BY t.produk_nama, t.produk_kategori
 		ORDER BY total_omset DESC
 		LIMIT 10
 	`
@@ -661,7 +745,8 @@ func (s *SalesReportService) calculateLossAnalysis(startDate, endDate time.Time)
 
 	// Define label mapping and colors
 	typeLabels := map[string]string{
-		"kadaluarsa": "Barang Kadaluarsa",
+		"kadaluarsa": "Produk Expire",
+		"Kadaluarsa": "Produk Expire", // Handle capitalized case if exists
 		"rusak":      "Barang Rusak",
 		"hilang":     "Kehilangan",
 		"other":      "Lainnya",
@@ -701,34 +786,9 @@ func (s *SalesReportService) calculateLossAnalysis(startDate, endDate time.Time)
 		totalLoss += loss
 	}
 
-	// Also check for expired items from batch table
-	expiredQuery := `
-		SELECT
-			COUNT(*) as count,
-			SUM(b.qty_tersisa * p.harga_beli) as total_loss
-		FROM batch b
-		INNER JOIN produk p ON b.produk_id = p.id
-		WHERE b.tanggal_kadaluarsa BETWEEN ? AND ?
-			AND b.status = 'expired'
-	`
-
-	var expiredCount, expiredLoss int
-	err = database.DB.QueryRow(expiredQuery, startDate, endDate).Scan(&expiredCount, &expiredLoss)
-	if err == nil && expiredLoss > 0 {
-		if existing, exists := lossMap["kadaluarsa"]; exists {
-			existing.TotalLoss += expiredLoss
-			existing.Count += expiredCount
-		} else {
-			lossMap["kadaluarsa"] = &models.LossBreakdownItem{
-				Type:       "kadaluarsa",
-				Label:      "Barang Kadaluarsa",
-				TotalLoss:  expiredLoss,
-				Count:      expiredCount,
-				Persentase: 0,
-			}
-		}
-		totalLoss += expiredLoss
-	}
+	// Automatic calculation of 'expired' status batches removed.
+	// Now we only count losses based on ACTUAL manual deletion (confirmed by user),
+	// which creates a 'stok_history' record with type 'kadaluarsa'.
 
 	// Calculate percentages and build arrays for chart
 	labels := []string{}
@@ -767,7 +827,7 @@ func toLocalTime(t time.Time) time.Time {
 }
 
 // calculateSalesTrendData calculates sales trend for a given period type
-func (s *SalesReportService) calculateSalesTrendData(transaksiList []*models.Transaksi, periodType string) models.SalesReportPeriodData {
+func (s *SalesReportService) calculateSalesTrendData(transaksiList []*models.Transaksi, returnsList []*models.Return, periodType string) models.SalesReportPeriodData {
 	now := time.Now().In(time.Local) // Normalize now to local start of day
 	now = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
@@ -790,6 +850,13 @@ func (s *SalesReportService) calculateSalesTrendData(transaksiList []*models.Tra
 				tLocal := toLocalTime(t.CreatedAt)
 				if (tLocal.After(slotStart) || tLocal.Equal(slotStart)) && tLocal.Before(slotEnd) {
 					currentSlotTotal += float64(t.Total)
+				}
+			}
+			// Subtract refunds for this slot
+			for _, r := range returnsList {
+				rLocal := toLocalTime(r.ReturnDate)
+				if (rLocal.After(slotStart) || rLocal.Equal(slotStart)) && rLocal.Before(slotEnd) {
+					currentSlotTotal -= float64(r.RefundAmount)
 				}
 			}
 			salesMap[fmt.Sprintf("%02d", hour)] = currentSlotTotal
@@ -820,6 +887,13 @@ func (s *SalesReportService) calculateSalesTrendData(transaksiList []*models.Tra
 					currentDayTotal += float64(t.Total)
 				}
 			}
+			// Subtract refunds for this day
+			for _, r := range returnsList {
+				rLocal := toLocalTime(r.ReturnDate)
+				if (rLocal.After(dayStart) || rLocal.Equal(dayStart)) && rLocal.Before(dayEnd) {
+					currentDayTotal -= float64(r.RefundAmount)
+				}
+			}
 			salesMap[date.Format("2006-01-02")] = currentDayTotal
 		}
 
@@ -846,6 +920,13 @@ func (s *SalesReportService) calculateSalesTrendData(transaksiList []*models.Tra
 				tLocal := toLocalTime(t.CreatedAt)
 				if (tLocal.After(dayStart) || tLocal.Equal(dayStart)) && tLocal.Before(dayEnd) {
 					currentDayTotal += float64(t.Total)
+				}
+			}
+			// Subtract refunds for this day
+			for _, r := range returnsList {
+				rLocal := toLocalTime(r.ReturnDate)
+				if (rLocal.After(dayStart) || rLocal.Equal(dayStart)) && rLocal.Before(dayEnd) {
+					currentDayTotal -= float64(r.RefundAmount)
 				}
 			}
 			data = append(data, currentDayTotal) // Append directly
@@ -958,7 +1039,7 @@ func (s *SalesReportService) calculateDiscountTrendData(transaksiList []*models.
 }
 
 // calculateHourlyTrendData calculates hourly sales trend for a given period type
-func (s *SalesReportService) calculateHourlyTrendData(transaksiList []*models.Transaksi, periodType string) models.SalesReportPeriodData {
+func (s *SalesReportService) calculateHourlyTrendData(transaksiList []*models.Transaksi, returnsList []*models.Return, periodType string) models.SalesReportPeriodData {
 	now := time.Now().In(time.Local) // Normalize now to local start of day
 	now = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
@@ -980,6 +1061,13 @@ func (s *SalesReportService) calculateHourlyTrendData(transaksiList []*models.Tr
 				tLocal := toLocalTime(t.CreatedAt)
 				if (tLocal.After(slotStart) || tLocal.Equal(slotStart)) && tLocal.Before(slotEnd) {
 					currentSlotTotal += float64(t.Total)
+				}
+			}
+			// Subtract refunds for this slot
+			for _, r := range returnsList {
+				rLocal := toLocalTime(r.ReturnDate)
+				if (rLocal.After(slotStart) || rLocal.Equal(slotStart)) && rLocal.Before(slotEnd) {
+					currentSlotTotal -= float64(r.RefundAmount)
 				}
 			}
 			hourlyMap[fmt.Sprintf("%02d", i)] = currentSlotTotal
@@ -1040,59 +1128,59 @@ func (s *SalesReportService) calculateHourlyTrendData(transaksiList []*models.Tr
 }
 
 func (s *SalesReportService) GetSalesByPeriod(filterType string) (map[string]interface{}, error) {
-    // Determine the actual date range based on the filter type
-    now := time.Now()
-    var start, end time.Time
+	// Determine the actual date range based on the filter type
+	now := time.Now()
+	var start, end time.Time
 
-    switch filterType {
-    case "hari":
-        // Data untuk hari ini
-        start = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-        end = time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 999999999, now.Location())
-    case "minggu":
-        // Data untuk 7 hari terakhir
-        start = now.AddDate(0, 0, -7).Truncate(24 * time.Hour)
-        end = now
-    case "bulan":
-        // Data untuk 30 hari terakhir
-        start = now.AddDate(0, 0, -30).Truncate(24 * time.Hour)
-        end = now
-    default:
-        // Default to today if filter is unrecognized
-        start = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-        end = time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 999999999, now.Location())
-    }
+	switch filterType {
+	case "hari":
+		// Data untuk hari ini
+		start = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		end = time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 999999999, now.Location())
+	case "minggu":
+		// Data untuk 7 hari terakhir
+		start = now.AddDate(0, 0, -7).Truncate(24 * time.Hour)
+		end = now
+	case "bulan":
+		// Data untuk 30 hari terakhir
+		start = now.AddDate(0, 0, -30).Truncate(24 * time.Hour)
+		end = now
+	default:
+		// Default to today if filter is unrecognized
+		start = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		end = time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 999999999, now.Location())
+	}
 
-    // Get raw data from repository
-    // We map 'hari' -> 'day', 'minggu' -> 'week', 'bulan' -> 'month' for the DB query
-    groupBy := "hour" // Default grouping
-    if filterType == "hari" {
-        groupBy = "day"
-    } else if filterType == "minggu" {
-        groupBy = "week"
-    } else if filterType == "bulan" {
-        groupBy = "month"
-    }
+	// Get raw data from repository
+	// We map 'hari' -> 'day', 'minggu' -> 'week', 'bulan' -> 'month' for the DB query
+	groupBy := "hour" // Default grouping
+	if filterType == "hari" {
+		groupBy = "day"
+	} else if filterType == "minggu" {
+		groupBy = "week"
+	} else if filterType == "bulan" {
+		groupBy = "month"
+	}
 
-    rawData, err := s.transaksiRepo.GetSalesGroupedByPeriod(start, end, groupBy)
-    if err != nil {
-        return nil, fmt.Errorf("failed to get sales data from repository: %w", err)
-    }
+	rawData, err := s.transaksiRepo.GetSalesGroupedByPeriod(start, end, groupBy)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sales data from repository: %w", err)
+	}
 
-    // Transform the raw data into the format expected by the frontend
-    labels := make([]string, len(rawData))
-    revenue := make([]int, len(rawData))
-    transactions := make([]int, len(rawData))
+	// Transform the raw data into the format expected by the frontend
+	labels := make([]string, len(rawData))
+	revenue := make([]int, len(rawData))
+	transactions := make([]int, len(rawData))
 
-    for i, data := range rawData {
-        labels[i] = data["label"].(string)
-        revenue[i] = data["revenue"].(int)
-        transactions[i] = data["transactions"].(int)
-    }
+	for i, data := range rawData {
+		labels[i] = data["label"].(string)
+		revenue[i] = data["revenue"].(int)
+		transactions[i] = data["transactions"].(int)
+	}
 
-    return map[string]interface{}{
-        "labels":       labels,
-        "revenue":      revenue,
-        "transactions": transactions,
-    }, nil
+	return map[string]interface{}{
+		"labels":       labels,
+		"revenue":      revenue,
+		"transactions": transactions,
+	}, nil
 }

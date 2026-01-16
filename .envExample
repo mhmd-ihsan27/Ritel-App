@@ -1,0 +1,42 @@
+# ========================================
+# WEB-ONLY MODE CONFIGURATION
+# Untuk akses via browser (tidak pakai desktop app)
+# ========================================
+
+# Database Configuration - Langsung ke PostgreSQL
+DB_DRIVER=postgres
+DB_DSN=host=localhost port=5432 user=postgres password=123 dbname=ritel_db sslmode=disable
+
+# IMPORTANT: Disable Sync Mode untuk web-only
+SYNC_MODE=disabled
+
+# ========================================
+# Web Server Configuration
+# ========================================
+WEB_ENABLED=true
+WEB_PORT=8080
+WEB_HOST=0.0.0.0
+
+# ========================================
+# JWT Authentication Configuration
+# ========================================
+JWT_SECRET=ritel-app-secret-key-change-this-in-production-2024
+JWT_EXPIRY_HOURS=24
+
+# ========================================
+# CORS Configuration
+# ========================================
+# Use * for development, specify exact origins in production
+CORS_ALLOWED_ORIGINS=*
+CORS_ALLOW_CREDENTIALS=true
+
+# ========================================
+# Rate Limiting Configuration
+# ========================================
+RATE_LIMIT_ENABLED=true
+RATE_LIMIT_GLOBAL=200
+RATE_LIMIT_WINDOW_GLOBAL=1m
+RATE_LIMIT_API=100
+RATE_LIMIT_WINDOW_API=1m
+RATE_LIMIT_LOGIN=5
+RATE_LIMIT_WINDOW_LOGIN=1m

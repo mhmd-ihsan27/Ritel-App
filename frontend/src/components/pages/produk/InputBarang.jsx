@@ -142,14 +142,14 @@ const VariantModeBanner = () => {
 };
 
 // Komponen untuk varian berat
-const WeightVariant = ({ 
-    variant, 
-    index, 
-    satuan, 
-    onChange, 
-    onRemove, 
-    onGenerateBarcode, 
-    canRemove 
+const WeightVariant = ({
+    variant,
+    index,
+    satuan,
+    onChange,
+    onRemove,
+    onGenerateBarcode,
+    canRemove
 }) => {
     return (
         <div className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm">
@@ -203,10 +203,14 @@ const WeightVariant = ({
                 {/* Harga Jual */}
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Harga per 1000 gram <span className="text-red-500">*</span>
+                        {formProduk.jenisProduk === 'curah'
+                            ? 'Harga per 1000 gram'
+                            : `Harga per 1 ${formProduk.satuan || 'pcs'}`} <span className="text-red-500">*</span>
                     </label>
                     <p className="text-xs text-gray-500 mb-2">
-                        Harga untuk 1 kg atau 1000 gram produk
+                        {formProduk.jenisProduk === 'curah'
+                            ? 'Harga untuk 1 kg atau 1000 gram produk'
+                            : `Harga untuk 1 ${formProduk.satuan || 'pcs'} produk`}
                     </p>
                     <div className="relative">
                         <span className="absolute left-3 top-2.5 text-gray-500 font-medium">Rp</span>
@@ -280,13 +284,13 @@ const parseRupiah = (rupiahString) => {
 
 const InputBarang = ({ onSaveProduk }) => {
     const toast = useToast();
-    
+
     // State management
     const [mode, setMode] = useState('single'); // 'single' atau 'variant'
     const [kategoris, setKategoris] = useState([]);
     const [loading, setLoading] = useState(false);
     const [loadingKategori, setLoadingKategori] = useState(false);
-    
+
     // Form state untuk mode single
     const [formProduk, setFormProduk] = useState({
         sku: '',
@@ -304,7 +308,7 @@ const InputBarang = ({ onSaveProduk }) => {
         deskripsi: '',
         hariPemberitahuanKadaluarsa: '30'
     });
-    
+
     // State untuk mode varian
     const [duplicateWeights, setDuplicateWeights] = useState([{ berat: '', hargaJual: '', barcode: '' }]);
 
@@ -331,7 +335,7 @@ const InputBarang = ({ onSaveProduk }) => {
     const handleToggleMode = () => {
         const newMode = mode === 'single' ? 'variant' : 'single';
         setMode(newMode);
-        
+
         // Reset form saat mode berubah
         if (newMode === 'variant') {
             setDuplicateWeights([{ berat: '', hargaJual: '', barcode: '' }]);
@@ -376,6 +380,25 @@ const InputBarang = ({ onSaveProduk }) => {
     const handleInputChange = (e) => {
         const { name, value } = e.target;
         let newState = { ...formProduk, [name]: value };
+
+        // Auto-detect jenisProduk based on satuan (Reverse logic)
+        if (name === 'satuan') {
+            const curahUnits = ['kg', 'gram'];
+            if (curahUnits.includes(value)) {
+                newState.jenisProduk = 'curah';
+            } else {
+                newState.jenisProduk = 'satuan';
+            }
+        }
+
+        // Handle explicit jenisProduk change (Reset satuan to sensible default)
+        if (name === 'jenisProduk') {
+            if (value === 'curah') {
+                newState.satuan = 'kg';
+            } else {
+                newState.satuan = 'pcs';
+            }
+        }
 
         // Logika auto-fill kategori hanya di mode varian saat nama berubah
         if (mode === 'variant' && name === 'nama') {
@@ -715,9 +738,8 @@ const InputBarang = ({ onSaveProduk }) => {
                             )}
                         </div>
                         <div className="flex items-center space-x-3">
-                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                                mode === 'variant' ? 'bg-blue-500 text-white' : 'bg-green-500 text-white'
-                            }`}>
+                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${mode === 'variant' ? 'bg-blue-500 text-white' : 'bg-green-500 text-white'
+                                }`}>
                                 {mode === 'variant' ? 'Mode: Varian Berat' : 'Mode: Single Berat'}
                             </span>
                         </div>
@@ -747,11 +769,10 @@ const InputBarang = ({ onSaveProduk }) => {
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     {/* Radio: Curah (Ditimbang) */}
-                                    <label className={`relative flex items-start p-4 cursor-pointer rounded-xl border-2 transition-all ${
-                                        formProduk.jenisProduk === 'curah'
-                                            ? 'border-green-500 bg-green-50'
-                                            : 'border-gray-300 bg-white hover:border-green-300'
-                                    }`}>
+                                    <label className={`relative flex items-start p-4 cursor-pointer rounded-xl border-2 transition-all ${formProduk.jenisProduk === 'curah'
+                                        ? 'border-green-500 bg-green-50'
+                                        : 'border-gray-300 bg-white hover:border-green-300'
+                                        }`}>
                                         <input
                                             type="radio"
                                             name="jenisProduk"
@@ -772,11 +793,10 @@ const InputBarang = ({ onSaveProduk }) => {
                                     </label>
 
                                     {/* Radio: Satuan Tetap */}
-                                    <label className={`relative flex items-start p-4 cursor-pointer rounded-xl border-2 transition-all ${
-                                        formProduk.jenisProduk === 'satuan'
-                                            ? 'border-blue-500 bg-blue-50'
-                                            : 'border-gray-300 bg-white hover:border-blue-300'
-                                    }`}>
+                                    <label className={`relative flex items-start p-4 cursor-pointer rounded-xl border-2 transition-all ${formProduk.jenisProduk === 'satuan'
+                                        ? 'border-blue-500 bg-blue-50'
+                                        : 'border-gray-300 bg-white hover:border-blue-300'
+                                        }`}>
                                         <input
                                             type="radio"
                                             name="jenisProduk"
@@ -904,7 +924,13 @@ const InputBarang = ({ onSaveProduk }) => {
                                                     { value: 'buah', label: 'Buah', icon: faAppleAlt, description: 'buah' },
                                                     { value: 'pack', label: 'Pack', icon: faBox, description: 'pack' },
                                                     { value: 'bungkus', label: 'Bungkus', icon: faBox, description: 'bungkus' }
-                                                ]}
+                                                ].filter(opt => {
+                                                    if (formProduk.jenisProduk === 'curah') {
+                                                        return ['kg', 'gram'].includes(opt.value);
+                                                    } else {
+                                                        return !['kg', 'gram'].includes(opt.value);
+                                                    }
+                                                })}
                                                 placeholder="Pilih Satuan"
                                                 label="Satuan"
                                             />
@@ -931,7 +957,6 @@ const InputBarang = ({ onSaveProduk }) => {
                                                 step="0.01"
                                             />
                                         </div>
-                                        <p className="text-xs text-gray-500 mt-2">Contoh: 0.5 untuk 500 gram</p>
                                     </div>
                                 </div>
                             </div>
@@ -965,12 +990,14 @@ const InputBarang = ({ onSaveProduk }) => {
 
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                {formProduk.jenisProduk === 'satuan' ? 'Harga per pcs' : 'Harga per 1000 gram'} <span className="text-red-500">*</span>
+                                                {formProduk.jenisProduk === 'curah'
+                                                    ? (formProduk.satuan === 'kg' ? 'Harga per 1 kg' : 'Harga per 1000 gram')
+                                                    : `Harga per 1 ${formProduk.satuan || 'pcs'}`} <span className="text-red-500">*</span>
                                             </label>
                                             <p className="text-xs text-gray-500 mb-2">
-                                                {formProduk.jenisProduk === 'satuan'
-                                                    ? 'Harga untuk 1 pcs/unit produk'
-                                                    : 'Harga untuk 1 kg atau 1000 gram produk'}
+                                                {formProduk.jenisProduk === 'curah'
+                                                    ? (formProduk.satuan === 'kg' ? 'Harga untuk 1 kilogram produk' : 'Harga untuk 1000 gram produk')
+                                                    : `Harga untuk 1 ${formProduk.satuan || 'pcs'} produk`}
                                             </p>
                                             <div className="relative">
                                                 <span className="absolute left-4 top-3 text-gray-500 font-medium">Rp</span>
@@ -1009,7 +1036,9 @@ const InputBarang = ({ onSaveProduk }) => {
                                                     placeholder="0"
                                                     min="0"
                                                 />
-                                                <p className="text-xs text-gray-500 mt-2">Jumlah stok awal produk</p>
+                                                <p className="text-xs text-gray-500 mt-2">
+                                                    Jumlah stok awal produk {formProduk.satuan ? `(dalam ${formProduk.satuan})` : ''}
+                                                </p>
                                             </div>
 
                                             <div>
@@ -1379,9 +1408,8 @@ const InputBarang = ({ onSaveProduk }) => {
                         <button
                             onClick={simpanProduk}
                             disabled={loading}
-                            className={`px-8 py-3 rounded-xl font-medium transition-colors flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed ${
-                                mode === 'variant' ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-green-600 hover:bg-green-700 text-white'
-                            }`}
+                            className={`px-8 py-3 rounded-xl font-medium transition-colors flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed ${mode === 'variant' ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-green-600 hover:bg-green-700 text-white'
+                                }`}
                         >
                             <FontAwesomeIcon icon={faSave} />
                             <span>

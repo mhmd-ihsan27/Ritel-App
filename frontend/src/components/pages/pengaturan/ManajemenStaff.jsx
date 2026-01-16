@@ -107,15 +107,40 @@ const ManajemenStaff = () => {
     const handleEdit = async (e) => {
         e.preventDefault();
 
+        // Validation
+        if (!formData.username.trim()) {
+            showToast('error', 'Username tidak boleh kosong');
+            return;
+        }
+
+        if (!formData.namaLengkap.trim()) {
+            showToast('error', 'Nama lengkap tidak boleh kosong');
+            return;
+        }
+
+        // If password is provided, validate it
+        if (formData.password && formData.password.length < 6) {
+            showToast('error', 'Password minimal 6 karakter');
+            return;
+        }
+
         try {
-            await userAPI.update({
-                id: selectedUser.id,
+            const updatePayload = {
+                id: Number(selectedUser.id), // Ensure id is number
                 username: formData.username,
-                password: formData.password, // Optional
                 namaLengkap: formData.namaLengkap,
                 role: formData.role,
                 status: formData.status
-            });
+            };
+
+            // Only include password if it's been changed
+            if (formData.password && formData.password.trim() !== '') {
+                updatePayload.password = formData.password;
+            }
+
+            console.log('Updating user with payload:', updatePayload);
+
+            await userAPI.update(updatePayload);
 
             // Tampilkan notifikasi sukses dengan desain Toast.jsx
             showToast('success', `Data user "${formData.namaLengkap}" berhasil diperbarui!`, 4000);
@@ -144,18 +169,9 @@ const ManajemenStaff = () => {
         }
 
         try {
-            // For admin changing other user's password
-            // Note: This currently only works in desktop mode
-            // TODO: Add web API endpoint for admin password change
-            if (window.go && window.go.main && window.go.main.App && window.go.main.App.ChangePassword) {
-                await window.go.main.App.ChangePassword({
-                    userId: selectedUser.id,
-                    oldPassword: passwordData.oldPassword,
-                    newPassword: passwordData.newPassword
-                });
-            } else {
-                throw new Error('Password change not available in web mode');
-            }
+            // Use new admin change password API (no old password needed)
+            // Ensure userId is sent as number, not string
+            await userAPI.adminChangePassword(Number(selectedUser.id), passwordData.newPassword);
 
             // Tampilkan notifikasi sukses dengan desain Toast.jsx
             showToast('success', `Password untuk "${selectedUser.namaLengkap}" berhasil diubah!`, 4000);
@@ -664,20 +680,11 @@ const ManajemenStaff = () => {
                                     <p className="text-sm text-blue-800">
                                         User: <span className="font-semibold">{selectedUser.namaLengkap}</span>
                                     </p>
+                                    <p className="text-xs text-gray-600 mt-1">
+                                        Sebagai admin, Anda dapat mengubah password tanpa mengetahui password lama
+                                    </p>
                                 </div>
                                 <form onSubmit={handleChangePassword} className="space-y-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Password Lama
-                                        </label>
-                                        <input
-                                            type="password"
-                                            value={passwordData.oldPassword}
-                                            onChange={(e) => setPasswordData({ ...passwordData, oldPassword: e.target.value })}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
-                                            required
-                                        />
-                                    </div>
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">
                                             Password Baru

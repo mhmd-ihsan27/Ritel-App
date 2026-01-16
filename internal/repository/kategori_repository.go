@@ -17,6 +17,20 @@ func NewKategoriRepository() *KategoriRepository {
 
 // Create creates a new kategori
 func (r *KategoriRepository) Create(kategori *models.Kategori) error {
+	if database.UseDualMode && database.IsSQLite() {
+		id := database.GenerateOfflineID()
+		query := `
+			INSERT INTO kategori (id, nama, deskripsi, icon, created_at, updated_at)
+			VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		`
+		_, err := database.Exec(query, id, kategori.Nama, kategori.Deskripsi, kategori.Icon)
+		if err != nil {
+			return fmt.Errorf("failed to create kategori: %w", err)
+		}
+		kategori.ID = int(id)
+		return nil
+	}
+
 	query := `
 		INSERT INTO kategori (nama, deskripsi, icon, created_at, updated_at)
 		VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING id

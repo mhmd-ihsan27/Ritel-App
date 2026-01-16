@@ -2,11 +2,11 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"ritel-app/internal/container"
 	"ritel-app/internal/models"
+	"ritel-app/internal/sync"
 	"strconv"
 	"time"
 )
@@ -31,12 +31,19 @@ func (a *App) SetServices(services *container.ServiceContainer) {
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+
+	// Initialize printer debug log
+	if err := InitPrinterLog(); err != nil {
+		log.Printf("Warning: Failed to initialize printer log: %v", err)
+	}
+
 	log.Println("[WAILS] App startup complete")
 }
 
 // shutdown is called when the app is closing
 func (a *App) shutdown(ctx context.Context) {
 	log.Println("[WAILS] App shutting down")
+	ClosePrinterLog()
 }
 
 // Greet returns a greeting for the given name
@@ -202,7 +209,14 @@ func (a *App) CreateTransaksi(req models.CreateTransaksiRequest) (*models.Transa
 }
 
 // GetTransaksiByID retrieves a transaction by ID
-func (a *App) GetTransaksiByID(id int) (*models.TransaksiDetail, error) {
+func (a *App) GetTransaksiByID(idStr string) (*models.TransaksiDetail, error) {
+	// Parse string ID to int64
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		log.Printf("[APP] GetTransaksiByID error parsing ID: %v", err)
+		return nil, fmt.Errorf("invalid transaction ID: %s", idStr)
+	}
+
 	log.Printf("[APP] GetTransaksiByID called with id: %d", id)
 	result, err := a.services.TransaksiService.GetTransaksiByID(id)
 	if err != nil {
@@ -267,7 +281,7 @@ func (a *App) GetAllPelanggan() ([]*models.Pelanggan, error) {
 }
 
 // GetPelangganByID retrieves a customer by ID
-func (a *App) GetPelangganByID(id int) (*models.Pelanggan, error) {
+func (a *App) GetPelangganByID(id int64) (*models.Pelanggan, error) {
 	return a.services.PelangganService.GetPelangganByID(id)
 }
 
@@ -283,7 +297,7 @@ func (a *App) UpdatePelanggan(req models.UpdatePelangganRequest) (*models.Pelang
 }
 
 // DeletePelanggan deletes a customer
-func (a *App) DeletePelanggan(id int) error {
+func (a *App) DeletePelanggan(id int64) error {
 	log.Printf("Deleting pelanggan ID: %d", id)
 	return a.services.PelangganService.DeletePelanggan(id)
 }
@@ -309,7 +323,7 @@ func (a *App) GetPoinSettings() (*models.PoinSettings, error) {
 
 // UpdatePoinSettings updates point system settings
 func (a *App) UpdatePoinSettings(req models.UpdatePoinSettingsRequest) (*models.PoinSettings, error) {
-	log.Println("Updating poin settings")
+	log.Printf("[APP] Updating poin settings. Request: %+v", req)
 	return a.services.SettingsService.UpdatePoinSettings(&req)
 }
 
@@ -358,7 +372,11 @@ func (a *App) GetActivePromos() ([]*models.Promo, error) {
 }
 
 // GetPromoByID retrieves a promo by ID
-func (a *App) GetPromoByID(id int) (*models.Promo, error) {
+func (a *App) GetPromoByID(idStr string) (*models.Promo, error) {
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid ID: %s", idStr)
+	}
 	return a.services.PromoService.GetPromoByID(id)
 }
 
@@ -374,7 +392,11 @@ func (a *App) UpdatePromo(req models.UpdatePromoRequest) (*models.Promo, error) 
 }
 
 // DeletePromo deletes a promo
-func (a *App) DeletePromo(id int) error {
+func (a *App) DeletePromo(idStr string) error {
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		return fmt.Errorf("invalid ID: %s", idStr)
+	}
 	log.Printf("Deleting promo ID: %d", id)
 	return a.services.PromoService.DeletePromo(id)
 }
@@ -391,7 +413,11 @@ func (a *App) GetPromoForProduct(produkID int) ([]*models.Promo, error) {
 }
 
 // GetPromoProducts gets products associated with a promo
-func (a *App) GetPromoProducts(promoID int) ([]*models.Produk, error) {
+func (a *App) GetPromoProducts(promoIDStr string) ([]*models.Produk, error) {
+	promoID, err := strconv.Atoi(promoIDStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid ID: %s", promoIDStr)
+	}
 	return a.services.PromoService.GetPromoProducts(promoID)
 }
 
@@ -444,13 +470,107 @@ func (a *App) PrintReceipt(req models.PrintReceiptRequest) error {
 
 // GetPrintSettings retrieves current print settings
 func (a *App) GetPrintSettings() (*models.PrintSettings, error) {
-	return a.services.PrinterService.GetPrintSettings()
+	log.Println("[PRINTER SETTINGS] ========== GET SETTINGS ==========")
+	settings, err := a.services.PrinterService.GetPrintSettings()
+
+	if err != nil {
+		log.Printf("[PRINTER SETTINGS] ERROR: Failed to get settings: %v", err)
+		return nil, err
+	}
+
+	if settings == nil {
+		log.Println("[PRINTER SETTINGS] WARNING: Settings returned nil")
+		return nil, fmt.Errorf("settings not found")
+	}
+
+	log.Printf("[PRINTER SETTINGS] Retrieved: PrinterName=%s, PaperSize=%s",
+		settings.PrinterName, settings.PaperSize)
+	log.Println("[PRINTER SETTINGS] ========== GET COMPLETE ==========")
+
+	return settings, nil
 }
 
 // SavePrintSettings saves print settings
 func (a *App) SavePrintSettings(settings models.PrintSettings) error {
-	log.Println("Saving print settings...")
-	return a.services.PrinterService.SavePrintSettings(&settings)
+	log.Println("[PRINTER SETTINGS] ========== SAVE ATTEMPT ==========")
+	log.Printf("[PRINTER SETTINGS] Received settings: PrinterName=%s, PaperSize=%s, AutoPrint=%v",
+		settings.PrinterName, settings.PaperSize, settings.AutoPrint)
+
+	// Log to file
+	logToPrinterFile("========== SET DEFAULT PRINTER ==========")
+	logToPrinterFile(fmt.Sprintf("Printer Name: %s", settings.PrinterName))
+
+	// Validate settings
+	if settings.PrinterName == "" {
+		log.Println("[PRINTER SETTINGS] ERROR: Printer name is empty!")
+		logToPrinterFile("ERROR: Printer name is empty!")
+		return fmt.Errorf("printer name cannot be empty")
+	}
+
+	log.Println("[PRINTER SETTINGS] Calling service.SavePrintSettings...")
+	err := a.services.PrinterService.SavePrintSettings(&settings)
+
+	if err != nil {
+		log.Printf("[PRINTER SETTINGS] ERROR: Save failed: %v", err)
+		logToPrinterFile(fmt.Sprintf("ERROR: Save failed - %v", err))
+		return err
+	}
+
+	log.Println("[PRINTER SETTINGS] SUCCESS: Settings saved to database")
+	logToPrinterFile(fmt.Sprintf("SUCCESS: Printer '%s' berhasil di set sebagai default", settings.PrinterName))
+	logToPrinterFile(fmt.Sprintf("Paper Size: %s, Auto Print: %v", settings.PaperSize, settings.AutoPrint))
+
+	// Verify save by reading back
+	log.Println("[PRINTER SETTINGS] Verifying saved settings...")
+	savedSettings, verifyErr := a.services.PrinterService.GetPrintSettings()
+	if verifyErr != nil {
+		log.Printf("[PRINTER SETTINGS] WARNING: Could not verify settings: %v", verifyErr)
+		logToPrinterFile(fmt.Sprintf("WARNING: Could not verify settings - %v", verifyErr))
+	} else {
+		log.Printf("[PRINTER SETTINGS] Verified: PrinterName=%s", savedSettings.PrinterName)
+		if savedSettings.PrinterName != settings.PrinterName {
+			log.Printf("[PRINTER SETTINGS] WARNING: Saved name mismatch! Expected=%s, Got=%s",
+				settings.PrinterName, savedSettings.PrinterName)
+			logToPrinterFile(fmt.Sprintf("WARNING: Mismatch! Expected=%s, Got=%s", settings.PrinterName, savedSettings.PrinterName))
+		} else {
+			logToPrinterFile("Verification: OK")
+		}
+	}
+
+	logToPrinterFile("========================================")
+	log.Println("[PRINTER SETTINGS] ========== SAVE COMPLETE ==========")
+	return nil
+}
+
+// TestPrintByName sends a test print to the specified printer by name
+func (a *App) TestPrintByName(printerName string) error {
+	log.Println("[TEST PRINT] ========== TEST PRINT START ==========")
+	log.Printf("[TEST PRINT] Printer: %s", printerName)
+
+	// Log to file
+	logToPrinterFile("========== TEST PRINT ==========")
+	logToPrinterFile(fmt.Sprintf("Printer: %s", printerName))
+
+	if printerName == "" {
+		log.Println("[TEST PRINT] ERROR: Printer name is empty!")
+		logToPrinterFile("ERROR: Printer name is empty!")
+		return fmt.Errorf("printer name cannot be empty")
+	}
+
+	err := a.services.PrinterService.TestPrint(printerName)
+
+	if err != nil {
+		log.Printf("[TEST PRINT] ERROR: Test print failed: %v", err)
+		logToPrinterFile(fmt.Sprintf("ERROR: Test print failed - %v", err))
+		return err
+	}
+
+	log.Println("[TEST PRINT] SUCCESS: Test print sent successfully")
+	logToPrinterFile(fmt.Sprintf("SUCCESS: Test print ke '%s' berhasil dikirim", printerName))
+	logToPrinterFile("========================================")
+
+	log.Println("[TEST PRINT] ========== TEST PRINT COMPLETE ==========")
+	return nil
 }
 
 // ==================== ANALYTICS API ====================
@@ -494,10 +614,10 @@ func (a *App) GetSalesInsights(startDate, endDate string) (*models.SalesInsights
 // ==================== PELANGGAN STATS API ====================
 
 func (a *App) GetPelangganWithStats(pelangganIDStr string) (*models.PelangganDetail, error) {
-	// Convert string to int
-	pelangganID, err := strconv.Atoi(pelangganIDStr)
+	// Convert string to int64
+	pelangganID, err := strconv.ParseInt(pelangganIDStr, 10, 64)
 	if err != nil {
-		log.Printf("Error converting pelangganID to int: %v", err)
+		log.Printf("Error converting pelangganID to int64: %v", err)
 		return nil, fmt.Errorf("ID pelanggan tidak valid: %s", pelangganIDStr)
 	}
 
@@ -508,7 +628,7 @@ func (a *App) GetPelangganWithStats(pelangganIDStr string) (*models.PelangganDet
 }
 
 // GetTransaksiByPelanggan retrieves all transactions for a customer
-func (a *App) GetTransaksiByPelanggan(pelangganID int) ([]*models.Transaksi, error) {
+func (a *App) GetTransaksiByPelanggan(pelangganID int64) ([]*models.Transaksi, error) {
 	log.Printf("Getting transactions for customer ID: %d", pelangganID)
 	return a.services.TransaksiService.GetTransaksiByPelangganID(pelangganID)
 }
@@ -543,7 +663,11 @@ func (a *App) UpdateUser(req models.UpdateUserRequest) error {
 }
 
 // DeleteUser soft deletes a user
-func (a *App) DeleteUser(id int) error {
+func (a *App) DeleteUser(idStr string) error {
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid user ID: %s", idStr)
+	}
 	log.Printf("Deleting user ID: %d", id)
 	return a.services.UserService.DeleteUser(id)
 }
@@ -561,7 +685,11 @@ func (a *App) GetAllStaff() ([]*models.User, error) {
 }
 
 // GetUserByID retrieves a user by ID
-func (a *App) GetUserByID(id int) (*models.User, error) {
+func (a *App) GetUserByID(idStr string) (*models.User, error) {
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user ID: %s", idStr)
+	}
 	log.Printf("Getting user by ID: %d", id)
 	return a.services.UserService.GetUserByID(id)
 }
@@ -572,10 +700,23 @@ func (a *App) ChangePassword(req models.ChangePasswordRequest) error {
 	return a.services.UserService.ChangePassword(&req)
 }
 
+// AdminChangePassword allows admin to change password without old password
+func (a *App) AdminChangePassword(req struct {
+	UserID      int64  `json:"userId"`
+	NewPassword string `json:"newPassword"`
+}) error {
+	log.Printf("Admin changing password for user ID: %d", req.UserID)
+	return a.services.UserService.AdminChangePassword(req.UserID, req.NewPassword)
+}
+
 // ==================== STAFF REPORTS API ====================
 
 // GetStaffReport generates performance report for a specific staff
-func (a *App) GetStaffReport(staffID int, startDate, endDate string) (*models.StaffReport, error) {
+func (a *App) GetStaffReport(staffIDStr string, startDate, endDate string) (*models.StaffReport, error) {
+	staffID, err := strconv.ParseInt(staffIDStr, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid staff ID: %s", staffIDStr)
+	}
 	log.Printf("Getting staff report for staff ID: %d from %s to %s", staffID, startDate, endDate)
 
 	// Parse dates
@@ -593,7 +734,11 @@ func (a *App) GetStaffReport(staffID int, startDate, endDate string) (*models.St
 }
 
 // GetStaffReportDetail gets detailed report with transaction list
-func (a *App) GetStaffReportDetail(staffID int, startDate, endDate string) (*models.StaffReportDetailWithItems, error) {
+func (a *App) GetStaffReportDetail(staffIDStr string, startDate, endDate string) (*models.StaffReportDetailWithItems, error) {
+	staffID, err := strconv.ParseInt(staffIDStr, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid staff ID: %s", staffIDStr)
+	}
 	log.Printf("Getting detailed staff report for staff ID: %d from %s to %s", staffID, startDate, endDate)
 
 	// Parse dates
@@ -635,7 +780,11 @@ func (a *App) GetAllStaffReportsWithTrend() ([]*models.StaffReportWithTrend, err
 }
 
 // GetStaffReportWithTrend gets staff report with trend for specific date range
-func (a *App) GetStaffReportWithTrend(staffID int, startDate, endDate string) (*models.StaffReportWithTrend, error) {
+func (a *App) GetStaffReportWithTrend(staffIDStr string, startDate, endDate string) (*models.StaffReportWithTrend, error) {
+	staffID, err := strconv.ParseInt(staffIDStr, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid staff ID: %s", staffIDStr)
+	}
 	log.Printf("Getting staff report with trend for staff ID: %d from %s to %s", staffID, startDate, endDate)
 
 	// Parse dates
@@ -652,27 +801,61 @@ func (a *App) GetStaffReportWithTrend(staffID int, startDate, endDate string) (*
 	return a.services.StaffReportService.GetStaffReportWithTrend(staffID, start, end)
 }
 
+// ==================== SYNC API ====================
+
+// ForcePushSync triggers a manual sync from Desktop to Web (Push)
+func (a *App) ForcePushSync() error {
+	log.Println("[APP] 🚀 Manual Push Sync Triggered")
+	if sync.Engine != nil {
+		return sync.Engine.TriggerInitialSync(true) // Force = true
+	}
+	return fmt.Errorf("sync engine not initialized")
+}
+
+// ForcePullSync triggers a manual sync from Web to Desktop (Pull)
+func (a *App) ForcePullSync() error {
+	log.Println("[APP] 🚀 Manual Pull Sync Triggered")
+	if sync.Engine != nil {
+		return sync.Engine.TriggerForcePull()
+	}
+	return fmt.Errorf("sync engine not initialized")
+}
+
+// GetShiftSettings returns current shift configurations
+func (a *App) GetShiftSettings() ([]models.ShiftSetting, error) {
+	return a.services.StaffReportService.GetShiftSettings()
+}
+
+// UpdateShiftSettings updates a shift configuration
+func (a *App) UpdateShiftSettings(id int, startTime, endTime, staffIDs string) error {
+	return a.services.StaffReportService.UpdateShiftSettings(id, startTime, endTime, staffIDs)
+}
+
 // GetStaffHistoricalData gets historical data for charts
-func (a *App) GetStaffHistoricalData(staffID int) (*models.StaffHistoricalData, error) {
-	log.Printf("Getting historical data for staff ID: %d", staffID)
+func (a *App) GetStaffHistoricalData(staffIDStr string) (*models.StaffHistoricalData, error) {
+	staffID, err := strconv.ParseInt(staffIDStr, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid staff ID: %s", staffIDStr)
+	}
 	return a.services.StaffReportService.GetStaffHistoricalData(staffID)
 }
 
 // GetComprehensiveStaffReport gets comprehensive analytics for last 30 days
 func (a *App) GetComprehensiveStaffReport() (*models.ComprehensiveStaffReport, error) {
-	log.Println("Getting comprehensive staff report for last 30 days")
 	return a.services.StaffReportService.GetComprehensiveReport()
 }
 
 // GetShiftProductivity gets sales distribution by shift (morning, afternoon, night)
 func (a *App) GetShiftProductivity() (map[string]int, error) {
-	log.Println("Getting shift productivity data")
 	return a.services.StaffReportService.GetShiftProductivity()
 }
 
 // GetStaffReportWithMonthlyTrend gets staff report with trend vs previous month
-func (a *App) GetStaffReportWithMonthlyTrend(staffID int, startDate, endDate string) (*models.StaffReportWithTrend, error) {
-	log.Printf("Getting staff monthly trend report for staff ID: %d from %s to %s", staffID, startDate, endDate)
+func (a *App) GetStaffReportWithMonthlyTrend(staffIDStr string, startDate, endDate string) (*models.StaffReportWithTrend, error) {
+	staffID, err := strconv.ParseInt(staffIDStr, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid staff ID: %s", staffIDStr)
+	}
 
 	// Parse dates
 	start, err := a.parseDate(startDate)
@@ -689,8 +872,11 @@ func (a *App) GetStaffReportWithMonthlyTrend(staffID int, startDate, endDate str
 }
 
 // GetStaffShiftData gets shift productivity data for a specific staff
-func (a *App) GetStaffShiftData(staffID int, startDate, endDate string) (map[string]map[string]interface{}, error) {
-	log.Printf("Getting staff shift data for staff ID: %d from %s to %s", staffID, startDate, endDate)
+func (a *App) GetStaffShiftData(staffIDStr string, startDate, endDate string) (map[string]map[string]interface{}, error) {
+	staffID, err := strconv.ParseInt(staffIDStr, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid staff ID: %s", staffIDStr)
+	}
 
 	// Parse dates
 	start, err := a.parseDate(startDate)
@@ -706,9 +892,23 @@ func (a *App) GetStaffShiftData(staffID int, startDate, endDate string) (map[str
 	return a.services.StaffReportService.GetStaffShiftData(staffID, start, end)
 }
 
+// GetShiftReports gets overall shift reports for today
+func (a *App) GetShiftReports(dateStr string) (*models.ShiftReportsResponse, error) {
+	return a.services.StaffReportService.GetShiftReports(dateStr)
+}
+
+// GetShiftCashiers gets active cashiers for a shift
+func (a *App) GetShiftCashiers(shift string) ([]*models.ShiftCashier, error) {
+	return a.services.StaffReportService.GetShiftCashiers(shift)
+}
+
+// GetShiftDetail gets detailed report for a specific shift and date
+func (a *App) GetShiftDetail(shift string, dateStr string) (*models.ShiftDetailResponse, error) {
+	return a.services.StaffReportService.GetShiftDetail(shift, dateStr)
+}
+
 // GetMonthlyComparisonTrend gets 30-day comparison with previous 30 days
 func (a *App) GetMonthlyComparisonTrend() (map[string]interface{}, error) {
-	log.Println("Getting monthly comparison trend (30 days vs previous 30 days)")
 	return a.services.StaffReportService.GetMonthlyComparisonTrend()
 }
 
@@ -716,7 +916,6 @@ func (a *App) GetMonthlyComparisonTrend() (map[string]interface{}, error) {
 
 // GetComprehensiveSalesReport gets comprehensive sales report for a date range
 func (a *App) GetComprehensiveSalesReport(startDate, endDate string) (*models.ComprehensiveSalesReport, error) {
-	log.Printf("Getting comprehensive sales report from %s to %s", startDate, endDate)
 
 	start, err := a.parseDate(startDate)
 	if err != nil {
@@ -742,13 +941,11 @@ func (a *App) parseDate(dateStr string) (time.Time, error) {
 
 // GetDashboardData returns all main dashboard data (statistik, notifikasi, performa, produk terlaris, aktivitas)
 func (a *App) GetDashboardData() (*models.DashboardData, error) {
-	log.Println("Getting dashboard data")
 	return a.services.DashboardService.GetDashboardData()
 }
 
 // GetDashboardSalesChart returns sales trend data for hari/minggu/bulan periods
 func (a *App) GetDashboardSalesChart() (*models.DashboardSalesChartResponse, error) {
-	log.Println("Getting dashboard sales chart data")
 	salesData, err := a.services.DashboardService.GetSalesChartData()
 	if err != nil {
 		return nil, err
@@ -761,70 +958,36 @@ func (a *App) GetDashboardSalesChart() (*models.DashboardSalesChartResponse, err
 // Di file App.go Anda
 
 func (a *App) GetDashboardCompositionChart() (map[string]interface{}, error) {
-	log.Println("Getting dashboard composition chart data")
 	data, err := a.services.DashboardService.GetCompositionChartData()
 	if err != nil {
 		return nil, err
 	}
 
 	// Wrap data to match frontend expectations
-	wrappedData := map[string]interface{}{
+	return map[string]interface{}{
 		"compositionData": data,
-	}
-
-	// --- TAMBAHKAN BAGIAN INI UNTUK DEBUGGING ---
-	// Marshal data ke JSON untuk melihat format yang akan dikirim
-	jsonData, marshalErr := json.MarshalIndent(wrappedData, "", "  ")
-	if marshalErr != nil {
-		log.Printf("Error marshalling composition data: %v", marshalErr)
-	} else {
-		log.Println("--- COMPOSITION CHART JSON RESPONSE ---")
-		log.Println(string(jsonData))
-		log.Println("-----------------------------------------")
-	}
-	// --- AKHIR BAGIAN DEBUGGING ---
-
-	return wrappedData, nil
+	}, nil
 }
 
 func (a *App) GetDashboardCategoryChart() (map[string]interface{}, error) {
-	log.Println("Getting dashboard category chart data")
 	data, err := a.services.DashboardService.GetCategoryChartData()
 	if err != nil {
 		return nil, err
 	}
 
 	// Wrap data to match frontend expectations
-	wrappedData := map[string]interface{}{
+	return map[string]interface{}{
 		"categoryData": data,
-	}
-
-	// --- TAMBAHKAN BAGIAN INI UNTUK DEBUGGING ---
-	// Marshal data ke JSON untuk melihat format yang akan dikirim
-	jsonData, marshalErr := json.MarshalIndent(wrappedData, "", "  ")
-	if marshalErr != nil {
-		log.Printf("Error marshalling category data: %v", marshalErr)
-	} else {
-		log.Println("--- CATEGORY CHART JSON RESPONSE ---")
-		log.Println(string(jsonData))
-		log.Println("--------------------------------------")
-	}
-	// --- AKHIR BAGIAN DEBUGGING ---
-
-	return wrappedData, nil
+	}, nil
 }
 
- 
 // GetSalesByPeriodForChart gets sales data for the transaction chart based on a filter
 func (a *App) GetSalesByPeriodForChart(filterType string) (map[string]interface{}, error) {
-    log.Printf("Getting sales chart data for filter: %s", filterType)
-    
-    // Pastikan salesReportService sudah diinisialisasi di struct App
-    if a.services.SalesReportService == nil {
-        return nil, fmt.Errorf("sales report service is not initialized")
-    }
 
-    return a.services.SalesReportService.GetSalesByPeriod(filterType)
+	// Pastikan salesReportService sudah diinisialisasi di struct App
+	if a.services.SalesReportService == nil {
+		return nil, fmt.Errorf("sales report service is not initialized")
+	}
+
+	return a.services.SalesReportService.GetSalesByPeriod(filterType)
 }
-
- 

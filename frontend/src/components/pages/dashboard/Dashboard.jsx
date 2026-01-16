@@ -363,7 +363,7 @@ const Dashboard = ({ formatRupiah, userName = "Admin" }) => {
                         className={`h-4 w-4 mr-1 ${trend > 0 ? 'text-green-600' : 'text-red-600'}`}
                     />
                     <span className={`text-xs font-medium ${trend > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {(Math.abs(trend || 0)).toFixed(1)}% dari bulan lalu
+                        {(Math.abs(trend || 0)).toFixed(2)}% dari bulan lalu
                     </span>
                 </div>
             </div>
@@ -506,7 +506,7 @@ const Dashboard = ({ formatRupiah, userName = "Admin" }) => {
                         {item.title.includes('Omzet') || item.title.includes('Omset') ? formatRupiah(safeValue) : safeValue}
                     </p>
                     <span className={`text-xs font-medium ${item.trend > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {item.trend > 0 ? '+' : ''}{item.trend}%
+                        {item.trend > 0 ? '+' : ''}{(item.trend || 0).toFixed(2)}%
                     </span>
                 </div>
             </div>
@@ -563,6 +563,9 @@ const Dashboard = ({ formatRupiah, userName = "Admin" }) => {
                             <div>
                                 <h2 className="text-3xl font-bold text-gray-800">{greeting}, {userName}!</h2>
                                 <p className="text-gray-600 mt-1">Dashboard toko </p>
+                                <span className="inline-block mt-1 text-xs px-2 py-1 rounded bg-gray-100 text-gray-600 border border-gray-300">
+                                    v122.1 (build)
+                                </span>
                             </div>
                         </div>
                     </div>
@@ -737,78 +740,78 @@ const Dashboard = ({ formatRupiah, userName = "Admin" }) => {
                 {/* Bar Chart - Penjualan per Kategori */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-3 bg-white rounded-xl shadow-md p-6 border border-gray-200">
-                    <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center">
-                            <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center mr-3 border border-green-200">
-                                <FontAwesomeIcon icon={faChartBar} className="h-5 w-5 text-green-700" />
+                        <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center">
+                                <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center mr-3 border border-green-200">
+                                    <FontAwesomeIcon icon={faChartBar} className="h-5 w-5 text-green-700" />
+                                </div>
+                                <h3 className="text-lg font-semibold text-gray-800">Penjualan per Kategori</h3>
                             </div>
-                            <h3 className="text-lg font-semibold text-gray-800">Penjualan per Kategori</h3>
+                            <div className="w-48">
+                                <CustomSelect
+                                    name="categoryFilter"
+                                    value={categoryFilter}
+                                    onChange={(e) => setCategoryFilter(e.target.value)}
+                                    options={[
+                                        { value: 'minggu', label: '7 Hari Terakhir', icon: faCalendarAlt },
+                                        { value: 'bulan', label: '1 Bulan Terakhir', icon: faCalendarAlt }
+                                    ]}
+                                    placeholder="Pilih periode"
+                                    icon={faFilter}
+                                    size="sm"
+                                />
+                            </div>
                         </div>
-                        <div className="w-48">
-                            <CustomSelect
-                                name="categoryFilter"
-                                value={categoryFilter}
-                                onChange={(e) => setCategoryFilter(e.target.value)}
-                                options={[
-                                    { value: 'minggu', label: '7 Hari Terakhir', icon: faCalendarAlt },
-                                    { value: 'bulan', label: '1 Bulan Terakhir', icon: faCalendarAlt }
-                                ]}
-                                placeholder="Pilih periode"
-                                icon={faFilter}
-                                size="sm"
-                            />
-                        </div>
-                    </div>
-                    <div className="h-64">
-                        {categoryData && categoryData[categoryFilter] && categoryData[categoryFilter].datasets && categoryData[categoryFilter].datasets.length > 0 ? (
-                            <Bar
-                                data={{
-                                    labels: categoryData[categoryFilter].labels || [],
-                                    datasets: categoryData[categoryFilter].datasets.map((dataset, index) => ({
-                                        label: dataset.label,
-                                        data: dataset.data,
-                                        backgroundColor: getCategoryColor(dataset.label, index),
-                                        borderRadius: 4,
-                                    }))
-                                }}
-                                options={{
-                                    responsive: true, maintainAspectRatio: false,
-                                    plugins: {
-                                        legend: {
-                                            position: 'top',
-                                            labels: { boxWidth: 12, padding: 15 }
-                                        },
-                                        tooltip: {
-                                            callbacks: {
-                                                label: function (context) {
-                                                    let label = context.dataset.label || '';
-                                                    if (label) { label += ': '; }
-                                                    if (context.parsed.y !== null) {
-                                                        label += formatRupiah(context.parsed.y);
+                        <div className="h-64">
+                            {categoryData && categoryData[categoryFilter] && categoryData[categoryFilter].datasets && categoryData[categoryFilter].datasets.length > 0 ? (
+                                <Bar
+                                    data={{
+                                        labels: categoryData[categoryFilter].labels || [],
+                                        datasets: categoryData[categoryFilter].datasets.map((dataset, index) => ({
+                                            label: dataset.label,
+                                            data: dataset.data,
+                                            backgroundColor: getCategoryColor(dataset.label, index),
+                                            borderRadius: 4,
+                                        }))
+                                    }}
+                                    options={{
+                                        responsive: true, maintainAspectRatio: false,
+                                        plugins: {
+                                            legend: {
+                                                position: 'top',
+                                                labels: { boxWidth: 12, padding: 15 }
+                                            },
+                                            tooltip: {
+                                                callbacks: {
+                                                    label: function (context) {
+                                                        let label = context.dataset.label || '';
+                                                        if (label) { label += ': '; }
+                                                        if (context.parsed.y !== null) {
+                                                            label += formatRupiah(context.parsed.y);
+                                                        }
+                                                        return label;
                                                     }
-                                                    return label;
+                                                }
+                                            }
+                                        },
+                                        scales: {
+                                            x: { stacked: true, grid: { display: false } },
+                                            y: {
+                                                stacked: true,
+                                                ticks: {
+                                                    callback: function (value) {
+                                                        if (value >= 1000000) { return 'Rp ' + (value / 1000000).toFixed(1) + 'jt'; }
+                                                        return 'Rp ' + (value / 1000).toFixed(0) + 'rb';
+                                                    }
                                                 }
                                             }
                                         }
-                                    },
-                                    scales: {
-                                        x: { stacked: true, grid: { display: false } },
-                                        y: {
-                                            stacked: true,
-                                            ticks: {
-                                                callback: function (value) {
-                                                    if (value >= 1000000) { return 'Rp ' + (value / 1000000).toFixed(1) + 'jt'; }
-                                                    return 'Rp ' + (value / 1000).toFixed(0) + 'rb';
-                                                }
-                                            }
-                                        }
-                                    }
-                                }}
-                            />
-                        ) : (
-                            <div className="h-full flex items-center justify-center text-gray-500">Data kategori tidak tersedia.</div>
-                        )}
-                    </div>
+                                    }}
+                                />
+                            ) : (
+                                <div className="h-full flex items-center justify-center text-gray-500">Data kategori tidak tersedia.</div>
+                            )}
+                        </div>
                     </div>
                 </div>
 

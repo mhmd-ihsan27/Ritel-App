@@ -4,14 +4,14 @@ import "time"
 
 // Pelanggan represents a customer in the system
 type Pelanggan struct {
-	ID             int       `json:"id"`
+	ID             int64     `json:"id,string"`
 	Nama           string    `json:"nama"`
 	Telepon        string    `json:"telepon"`
 	Email          string    `json:"email"`
 	Alamat         string    `json:"alamat"`
-	Level          int       `json:"level"`       // Level pelanggan: 1=reguler, 2=premium, 3=gold
-	Tipe           string    `json:"tipe"`        // Tipe pelanggan berdasarkan level
-	Poin           int       `json:"poin"`        // Jumlah poin pelanggan
+	Level          int       `json:"level"`        // Level pelanggan: 1=reguler, 2=premium, 3=gold
+	Tipe           string    `json:"tipe"`         // Tipe pelanggan berdasarkan level
+	Poin           int       `json:"poin"`         // Jumlah poin pelanggan
 	DiskonPersen   int       `json:"diskonPersen"` // Persentase diskon berdasarkan level
 	TotalTransaksi int       `json:"totalTransaksi"`
 	TotalBelanja   int       `json:"totalBelanja"`
@@ -31,17 +31,17 @@ type CreatePelangganRequest struct {
 
 // UpdatePelangganRequest represents request to update a customer
 type UpdatePelangganRequest struct {
-	ID      int    `json:"id"`
+	ID      int64  `json:"id,string"`
 	Nama    string `json:"nama"`
 	Telepon string `json:"telepon"`
 	Email   string `json:"email"`
 	Alamat  string `json:"alamat"`
- }
+}
 
 // AddPoinRequest represents request to add points to customer
 type AddPoinRequest struct {
-	PelangganID int `json:"pelangganId"`
-	Poin        int `json:"poin"`
+	PelangganID int64 `json:"pelangganId,string"`
+	Poin        int   `json:"poin"`
 }
 
 // PelangganResponse represents response after customer operation

@@ -152,11 +152,6 @@ const ReturnBarang = () => {
             return false;
         }
 
-        if (returnType === 'exchange' && !replacementProduct) {
-            toast.showWarning('Pilih produk pengganti');
-            return false;
-        }
-
         return true;
     };
 
@@ -630,57 +625,18 @@ const ReturnBarang = () => {
                                         />
                                     </div>
 
-                                    {/* Return Type */}
+                                    {/* Return Type - Only Refund */}
                                     <div>
                                         <label className="block text-sm font-semibold text-gray-700 mb-3">
                                             Tipe Return <span className="text-red-500">*</span>
                                         </label>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <button
-                                                type="button"
-                                                onClick={() => setReturnType('refund')}
-                                                className={`p-4 border-2 rounded-xl transition-all duration-300 ${returnType === 'refund'
-                                                    ? 'border-green-500 bg-green-50 shadow-md'
-                                                    : 'border-gray-300 hover:border-green-400 hover:shadow-sm'
-                                                    }`}
-                                            >
-                                                <FontAwesomeIcon icon={faMoneyBillWave} className={`text-2xl mb-2 ${returnType === 'refund' ? 'text-green-600' : 'text-gray-400'
-                                                    }`} />
-                                                <div className="text-sm font-medium text-gray-800">Refund</div>
-                                                <div className="text-xs text-gray-600">Pengembalian uang</div>
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => setReturnType('exchange')}
-                                                className={`p-4 border-2 rounded-xl transition-all duration-300 ${returnType === 'exchange'
-                                                    ? 'border-green-500 bg-green-50 shadow-md'
-                                                    : 'border-gray-300 hover:border-green-400 hover:shadow-sm'
-                                                    }`}
-                                            >
-                                                <FontAwesomeIcon icon={faExchangeAlt} className={`text-2xl mb-2 ${returnType === 'exchange' ? 'text-green-600' : 'text-gray-400'
-                                                    }`} />
-                                                <div className="text-sm font-medium text-gray-800">Tukar Produk</div>
-                                                <div className="text-xs text-gray-600">Ganti dengan produk lain</div>
-                                            </button>
+                                        <div className="p-4 border-2 border-green-500 bg-green-50 rounded-xl shadow-md">
+                                            <FontAwesomeIcon icon={faMoneyBillWave} className="text-2xl mb-2 text-green-600" />
+                                            <div className="text-sm font-medium text-gray-800">Refund</div>
+                                            <div className="text-xs text-gray-600">Pengembalian uang</div>
                                         </div>
                                     </div>
 
-                                    {/* Replacement Product (if exchange) */}
-                                    {returnType === 'exchange' && (
-                                        <div>
-                                            <label className="block text-sm font-semibold text-gray-700 mb-3">
-                                                Produk Pengganti <span className="text-red-500">*</span>
-                                            </label>
-                                            <CustomSelect
-                                                name="replacementProduct"
-                                                value={replacementProduct}
-                                                onChange={(e) => setReplacementProduct(e.target.value)}
-                                                options={replacementProductOptions}
-                                                placeholder="Pilih produk pengganti"
-                                                size="md"
-                                            />
-                                        </div>
-                                    )}
                                 </div>
                             )}
                         </div>
@@ -748,12 +704,6 @@ const ReturnBarang = () => {
                                         <span>Alasan:</span>
                                         <span className="font-medium">{returnReasons.find(r => r.value === returnReason)?.label}</span>
                                     </div>
-                                    {returnType === 'exchange' && (
-                                        <div className="flex justify-between">
-                                            <span>Produk Pengganti:</span>
-                                            <span className="font-medium text-right">{getReplacementProductName()}</span>
-                                        </div>
-                                    )}
                                 </div>
                             </div>
 
@@ -947,14 +897,6 @@ const ReturnBarang = () => {
                                             </div>
                                         </div>
 
-                                        {returnData.type === 'exchange' && replacementId && (
-                                            <div>
-                                                <label className="text-sm font-semibold text-gray-600 block mb-2">Produk Pengganti</label>
-                                                <p className="text-gray-900 font-medium text-lg">
-                                                    ID Produk: {replacementId}
-                                                </p>
-                                            </div>
-                                        )}
                                     </>
                                 );
                             })()}

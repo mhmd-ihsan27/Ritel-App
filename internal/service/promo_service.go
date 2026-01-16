@@ -69,28 +69,49 @@ func (s *PromoService) CreatePromo(req *models.CreatePromoRequest) (*models.Prom
 		}
 	}
 
-	// Set default tipe_produk_berlaku if not provided
-	tipeProdukBerlaku := req.TipeProdukBerlaku
-	if tipeProdukBerlaku == "" {
-		tipeProdukBerlaku = "semua"
+	// VALIDASI KHUSUS UNTUK DISKON_PRODUK
+	if req.TipePromo == "diskon_produk" {
+		// 1. WAJIB pilih tipe produk
+		if req.TipeProduk == "" {
+			return nil, fmt.Errorf("tipe produk harus dipilih untuk promo diskon produk (curah atau satuan)")
+		}
+
+		if req.TipeProduk != "curah" && req.TipeProduk != "satuan" {
+			return nil, fmt.Errorf("tipe produk harus 'curah' atau 'satuan'")
+		}
+
+		// 2. Validasi minimal gramasi untuk curah
+		if req.TipeProduk == "curah" {
+			if req.MinGramasi <= 0 {
+				return nil, fmt.Errorf("minimal gramasi harus lebih dari 0 untuk promo produk curah")
+			}
+			if len(req.ProdukIDs) == 0 {
+				return nil, fmt.Errorf("pilih minimal 1 produk curah untuk promo ini")
+			}
+		}
+
+		// 3. Validasi minimal quantity untuk satuan
+		if req.TipeProduk == "satuan" {
+			if req.MinQuantity <= 0 {
+				return nil, fmt.Errorf("minimal quantity harus lebih dari 0 untuk promo produk satuan")
+			}
+			if len(req.ProdukIDs) == 0 {
+				return nil, fmt.Errorf("pilih minimal 1 produk satuan untuk promo ini")
+			}
+		}
 	}
 
-	// Validate for Buy X Get Y: only allow 'satuan' products
-	if req.TipePromo == "buy_x_get_y" && tipeProdukBerlaku != "satuan" {
-		return nil, fmt.Errorf("promo Buy X Get Y hanya berlaku untuk produk dengan tipe satuan tetap")
-	}
-
-	// Get product details for produkX and produkY
+	// Get product details for produkX and produkY (for Buy X Get Y)
 	var produkXID, produkYID int
-	if req.ProdukX != nil {
+	if req.TipePromo == "buy_x_get_y" {
 		produkX, err := s.produkRepo.GetByID(*req.ProdukX)
 		if err != nil || produkX == nil {
 			return nil, fmt.Errorf("product X not found")
 		}
-		// Validate produk X jenis_produk matches tipeProdukBerlaku
-		if req.TipePromo == "buy_x_get_y" && produkX.Satuan == "kg" {
-			return nil, fmt.Errorf("produk X harus berupa produk satuan tetap (bukan curah) untuk promo Buy X Get Y")
-		}
+		// Validate produk X jenis_produk matches TipeProduk
+		// if req.TipePromo == "buy_x_get_y" && produkX.Satuan == "kg" {
+		// 	return nil, fmt.Errorf("produk X harus berupa produk satuan tetap (bukan curah) untuk promo Buy X Get Y")
+		// }
 		produkXID = produkX.ID
 	}
 	if req.ProdukY != nil {
@@ -98,37 +119,38 @@ func (s *PromoService) CreatePromo(req *models.CreatePromoRequest) (*models.Prom
 		if err != nil || produkY == nil {
 			return nil, fmt.Errorf("product Y not found")
 		}
-		// Validate produk Y jenis_produk matches tipeProdukBerlaku
-		if req.TipePromo == "buy_x_get_y" && produkY.Satuan == "kg" {
-			return nil, fmt.Errorf("produk Y harus berupa produk satuan tetap (bukan curah) untuk promo Buy X Get Y")
-		}
+		// Validate produk Y jenis_produk matches TipeProduk
+		// if req.TipePromo == "buy_x_get_y" && produkY.Satuan == "kg" {
+		// 	return nil, fmt.Errorf("produk Y harus berupa produk satuan tetap (bukan curah) untuk promo Buy X Get Y")
+		// }
 		produkYID = produkY.ID
 	}
 
 	// Create promo model
 	promo := &models.Promo{
-		Nama:              req.Nama,
-		Kode:              req.Kode,
-		Tipe:              req.Tipe,
-		TipePromo:         req.TipePromo,
-		TipeProdukBerlaku: tipeProdukBerlaku,
-		Nilai:             req.Nilai,
-		MinQuantity:       req.MinQuantity, // PASTIKAN INI
-		MaxDiskon:         req.MaxDiskon,
-		TanggalMulai:      tanggalMulai,
-		TanggalSelesai:    tanggalSelesai,
-		Status:            req.Status,
-		Deskripsi:         req.Deskripsi,
-		BuyQuantity:       req.BuyQuantity,
-		GetQuantity:       req.GetQuantity,
-		TipeBuyGet:        req.TipeBuyGet,
-		HargaBundling:     req.HargaBundling,
-		TipeBundling:      req.TipeBundling,
-		DiskonBundling:    req.DiskonBundling,
-		ProdukXID:         produkXID,
-		ProdukYID:         produkYID,
-		CreatedAt:         time.Now(),
-		UpdatedAt:         time.Now(),
+		Nama:           req.Nama,
+		Kode:           req.Kode,
+		Tipe:           req.Tipe,
+		TipePromo:      req.TipePromo,
+		TipeProduk:     req.TipeProduk,
+		MinGramasi:     req.MinGramasi,
+		Nilai:          req.Nilai,
+		MinQuantity:    req.MinQuantity, // PASTIKAN INI
+		MaxDiskon:      req.MaxDiskon,
+		TanggalMulai:   tanggalMulai,
+		TanggalSelesai: tanggalSelesai,
+		Status:         req.Status,
+		Deskripsi:      req.Deskripsi,
+		BuyQuantity:    req.BuyQuantity,
+		GetQuantity:    req.GetQuantity,
+		TipeBuyGet:     req.TipeBuyGet,
+		HargaBundling:  req.HargaBundling,
+		TipeBundling:   req.TipeBundling,
+		DiskonBundling: req.DiskonBundling,
+		ProdukXID:      produkXID,
+		ProdukYID:      produkYID,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
 	}
 
 	// Create promo
@@ -227,15 +249,15 @@ func (s *PromoService) UpdatePromo(req *models.UpdatePromoRequest) (*models.Prom
 	}
 
 	// Set default tipe_produk_berlaku if not provided
-	tipeProdukBerlaku := req.TipeProdukBerlaku
-	if tipeProdukBerlaku == "" {
-		tipeProdukBerlaku = "semua"
+	TipeProduk := req.TipeProduk
+	if TipeProduk == "" {
+		TipeProduk = "semua"
 	}
 
 	// Validate for Buy X Get Y: only allow 'satuan' products
-	if req.TipePromo == "buy_x_get_y" && tipeProdukBerlaku != "satuan" {
-		return nil, fmt.Errorf("promo Buy X Get Y hanya berlaku untuk produk dengan tipe satuan tetap")
-	}
+	// if req.TipePromo == "buy_x_get_y" && TipeProduk != "satuan" {
+	// 	return nil, fmt.Errorf("promo Buy X Get Y hanya berlaku untuk produk dengan tipe satuan tetap")
+	// }
 
 	// Get product details for produkX and produkY
 	var produkXID, produkYID int
@@ -244,10 +266,10 @@ func (s *PromoService) UpdatePromo(req *models.UpdatePromoRequest) (*models.Prom
 		if err != nil || produkX == nil {
 			return nil, fmt.Errorf("product X not found")
 		}
-		// Validate produk X jenis_produk matches tipeProdukBerlaku
-		if req.TipePromo == "buy_x_get_y" && produkX.Satuan == "kg" {
-			return nil, fmt.Errorf("produk X harus berupa produk satuan tetap (bukan curah) untuk promo Buy X Get Y")
-		}
+		// Validate produk X jenis_produk matches TipeProduk
+		// if req.TipePromo == "buy_x_get_y" && produkX.Satuan == "kg" {
+		// 	return nil, fmt.Errorf("produk X harus berupa produk satuan tetap (bukan curah) untuk promo Buy X Get Y")
+		// }
 		produkXID = produkX.ID
 	}
 	if req.ProdukY != nil {
@@ -255,36 +277,36 @@ func (s *PromoService) UpdatePromo(req *models.UpdatePromoRequest) (*models.Prom
 		if err != nil || produkY == nil {
 			return nil, fmt.Errorf("product Y not found")
 		}
-		// Validate produk Y jenis_produk matches tipeProdukBerlaku
-		if req.TipePromo == "buy_x_get_y" && produkY.Satuan == "kg" {
-			return nil, fmt.Errorf("produk Y harus berupa produk satuan tetap (bukan curah) untuk promo Buy X Get Y")
-		}
+		// Validate produk Y jenis_produk matches TipeProduk
+		// if req.TipePromo == "buy_x_get_y" && produkY.Satuan == "kg" {
+		// 	return nil, fmt.Errorf("produk Y harus berupa produk satuan tetap (bukan curah) untuk promo Buy X Get Y")
+		// }
 		produkYID = produkY.ID
 	}
 
 	// Update promo model
 	promo := &models.Promo{
-		ID:                req.ID,
-		Nama:              req.Nama,
-		Kode:              req.Kode,
-		Tipe:              req.Tipe,
-		TipePromo:         req.TipePromo,
-		TipeProdukBerlaku: tipeProdukBerlaku,
-		Nilai:             req.Nilai,
-		MinQuantity:       req.MinQuantity, // PASTIKAN INI
-		MaxDiskon:         req.MaxDiskon,
-		TanggalMulai:      tanggalMulai,
-		TanggalSelesai:    tanggalSelesai,
-		Status:            req.Status,
-		Deskripsi:         req.Deskripsi,
-		BuyQuantity:       req.BuyQuantity,
-		GetQuantity:       req.GetQuantity,
-		TipeBuyGet:        req.TipeBuyGet,
-		HargaBundling:     req.HargaBundling,
-		TipeBundling:      req.TipeBundling,
-		DiskonBundling:    req.DiskonBundling,
-		ProdukXID:         produkXID,
-		ProdukYID:         produkYID,
+		ID:             req.ID,
+		Nama:           req.Nama,
+		Kode:           req.Kode,
+		Tipe:           req.Tipe,
+		TipePromo:      req.TipePromo,
+		TipeProduk:     TipeProduk,
+		Nilai:          req.Nilai,
+		MinQuantity:    req.MinQuantity, // PASTIKAN INI
+		MaxDiskon:      req.MaxDiskon,
+		TanggalMulai:   tanggalMulai,
+		TanggalSelesai: tanggalSelesai,
+		Status:         req.Status,
+		Deskripsi:      req.Deskripsi,
+		BuyQuantity:    req.BuyQuantity,
+		GetQuantity:    req.GetQuantity,
+		TipeBuyGet:     req.TipeBuyGet,
+		HargaBundling:  req.HargaBundling,
+		TipeBundling:   req.TipeBundling,
+		DiskonBundling: req.DiskonBundling,
+		ProdukXID:      produkXID,
+		ProdukYID:      produkYID,
 	}
 
 	// Update promo
@@ -391,25 +413,9 @@ func (s *PromoService) ApplyPromo(req *models.ApplyPromoRequest) (*models.ApplyP
 	}
 
 	// VALIDASI MINIMUM QUANTITY
-	// Untuk promo buy_x_get_y, validasi quantity ada di BuyQuantity, bukan MinQuantity
-	// Jadi skip validasi MinQuantity untuk buy_x_get_y
-	if promo.MinQuantity > 0 && promo.TipePromo != "buy_x_get_y" {
-		totalQuantity := 0
-
-		// Untuk semua tipe promo, hitung total quantity dari cart
-		for _, item := range req.Items {
-			totalQuantity += item.Jumlah
-		}
-
-		fmt.Printf("Min quantity required: %d, Cart quantity: %d\n", promo.MinQuantity, totalQuantity)
-
-		if totalQuantity < promo.MinQuantity {
-			return &models.ApplyPromoResponse{
-				Success: false,
-				Message: fmt.Sprintf("Minimum pembelian %d produk untuk menggunakan promo ini (jumlah di keranjang: %d)", promo.MinQuantity, totalQuantity),
-			}, nil
-		}
-	}
+	// Validasi dipindahkan ke per-item level di calculateDiscount
+	// agar lebih akurat (misal: beli 1kg ayam diskon, tapi beli 1pcs permen tidak)
+	fmt.Printf("Validating individual product requirements...\n")
 
 	// VALIDASI PRODUK
 	fmt.Printf("Starting product validation...\n")
@@ -525,11 +531,11 @@ func (s *PromoService) validatePromoProducts(promo *models.Promo, items []models
 					productNames = append(productNames, p.Nama)
 				}
 				errorMsg := fmt.Sprintf("promo hanya berlaku untuk produk: %s", strings.Join(productNames, ", "))
-				return fmt.Errorf(errorMsg)
+				return fmt.Errorf("%s", errorMsg)
 			}
 		} else {
-			// Jika tidak ada produk spesifik, gunakan tipeProdukBerlaku untuk validasi
-			if promo.TipeProdukBerlaku != "semua" {
+			// Jika tidak ada produk spesifik, gunakan TipeProduk untuk validasi
+			if promo.TipeProduk != "semua" {
 				hasValidProduct := false
 				for _, item := range items {
 					// Load produk untuk cek satuan
@@ -538,12 +544,12 @@ func (s *PromoService) validatePromoProducts(promo *models.Promo, items []models
 						continue
 					}
 
-					// Cek apakah produk sesuai dengan tipeProdukBerlaku
+					// Cek apakah produk sesuai dengan TipeProduk
 					isCurah := produk.Satuan == "kg"
-					if promo.TipeProdukBerlaku == "curah" && isCurah {
+					if promo.TipeProduk == "curah" && isCurah {
 						hasValidProduct = true
 						break
-					} else if promo.TipeProdukBerlaku == "satuan" && !isCurah {
+					} else if promo.TipeProduk == "satuan" && !isCurah {
 						hasValidProduct = true
 						break
 					}
@@ -551,13 +557,13 @@ func (s *PromoService) validatePromoProducts(promo *models.Promo, items []models
 
 				if !hasValidProduct {
 					tipeLabel := "curah (kg)"
-					if promo.TipeProdukBerlaku == "satuan" {
+					if promo.TipeProduk == "satuan" {
 						tipeLabel = "satuan tetap (ikat, pack, dll)"
 					}
 					return fmt.Errorf("promo hanya berlaku untuk produk %s", tipeLabel)
 				}
 			}
-			// Jika tipeProdukBerlaku == "semua", tidak perlu validasi tambahan
+			// Jika TipeProduk == "semua", tidak perlu validasi tambahan
 		}
 
 	case "bundling":
@@ -588,7 +594,7 @@ func (s *PromoService) validatePromoProducts(promo *models.Promo, items []models
 		if len(missingProducts) > 0 {
 			errorMsg := fmt.Sprintf("promo bundling membutuhkan produk: %s", strings.Join(missingProducts, ", "))
 
-			return fmt.Errorf(errorMsg)
+			return fmt.Errorf("%s", errorMsg)
 		}
 
 	case "buy_x_get_y":
@@ -611,11 +617,35 @@ func (s *PromoService) validatePromoProducts(promo *models.Promo, items []models
 		// Validasi apakah produk X ada di cart dengan quantity yang cukup
 		hasProductX := false
 		var productXQuantity int
+		var usedWeightForX bool // Flag to track if we used weight or quantity
+
+		// Helper function for checking bulk unit (keep for fallback)
+		isCurah := func(p *models.Produk) bool {
+			if p == nil {
+				return false
+			}
+			if strings.ToLower(p.JenisProduk) == "curah" {
+				return true
+			}
+			s := strings.ToLower(strings.TrimSpace(p.Satuan))
+			return s == "kg" || s == "gram" || s == "g" || s == "kilogram"
+		}
+
 		for _, item := range items {
 			if item.ProdukID == promo.ProdukX.ID {
 				hasProductX = true
-				productXQuantity = item.Jumlah
 
+				// CHECK: Use BeratGram if available (User input weight), OR if product is Curah
+				if item.BeratGram > 0 {
+					productXQuantity = int(item.BeratGram)
+					usedWeightForX = true
+				} else if isCurah(promo.ProdukX) {
+					productXQuantity = int(item.BeratGram)
+					usedWeightForX = true
+				} else {
+					productXQuantity = item.Jumlah
+					usedWeightForX = false
+				}
 				break
 			}
 		}
@@ -623,27 +653,31 @@ func (s *PromoService) validatePromoProducts(promo *models.Promo, items []models
 		if !hasProductX {
 			errorMsg := fmt.Sprintf("promo buy_x_get_y membutuhkan produk: %s", promo.ProdukX.Nama)
 
-			return fmt.Errorf(errorMsg)
+			return fmt.Errorf("%s", errorMsg)
 		}
 
 		// Cek apakah quantity cukup untuk menerapkan promo
 		// Untuk produk "sama", user harus masukkan X+Y unit (1 set lengkap)
 		// Untuk produk "beda", user hanya perlu X unit dari produk X
+
+		unitLabel := "unit"
+		if usedWeightForX {
+			unitLabel = "gram"
+		}
+
 		if promo.TipeBuyGet == "sama" {
 			// Produk sama: user harus masukkan minimal 1 set lengkap (X + Y)
 			setSize := promo.BuyQuantity + promo.GetQuantity
 			if productXQuantity < setSize {
-				errorMsg := fmt.Sprintf("minimal masukkan %d %s ke keranjang untuk promo ini (Beli %d Gratis %d)", setSize, promo.ProdukX.Nama, promo.BuyQuantity, promo.GetQuantity)
-
-				return fmt.Errorf(errorMsg)
+				errorMsg := fmt.Sprintf("minimal masukkan %d %s %s ke keranjang untuk promo ini (Beli %d Gratis %d)", setSize, unitLabel, promo.ProdukX.Nama, promo.BuyQuantity, promo.GetQuantity)
+				return fmt.Errorf("%s", errorMsg)
 			}
 
 		} else {
 			// Produk beda: cukup cek produk X
 			if productXQuantity < promo.BuyQuantity {
-				errorMsg := fmt.Sprintf("minimal beli %d %s untuk menggunakan promo ini", promo.BuyQuantity, promo.ProdukX.Nama)
-
-				return fmt.Errorf(errorMsg)
+				errorMsg := fmt.Sprintf("minimal beli %d %s %s untuk menggunakan promo ini", promo.BuyQuantity, unitLabel, promo.ProdukX.Nama)
+				return fmt.Errorf("%s", errorMsg)
 			}
 
 		}
@@ -678,7 +712,7 @@ func (s *PromoService) validatePromoProducts(promo *models.Promo, items []models
 			if !hasProductY {
 				errorMsg := fmt.Sprintf("promo buy_x_get_y membutuhkan produk: %s", promo.ProdukY.Nama)
 
-				return fmt.Errorf(errorMsg)
+				return fmt.Errorf("%s", errorMsg)
 			}
 		}
 
@@ -706,29 +740,46 @@ func (s *PromoService) CalculateDiscount(promo *models.Promo, subtotal int, item
 	}
 }
 
-func (s *PromoService) CalculateTotalDiscount(subtotal int, totalQuantity int, promoKode string, pelangganID int, items []models.TransaksiItemRequest) (int, int, error) {
+func (s *PromoService) CalculateTotalDiscount(subtotal int, totalQuantity int, promoKode string, pelangganID int64, items []models.TransaksiItemRequest) (int, int, error) {
 	var promoDiskon int
 	var customerDiskon int
 
 	// Apply promo discount if provided
 	if promoKode != "" {
-		promoResponse, err := s.ApplyPromo(&models.ApplyPromoRequest{
-			Kode:          promoKode,
-			Subtotal:      subtotal,
-			TotalQuantity: totalQuantity,
-			PelangganID:   pelangganID,
-			Items:         items,
-		})
+		// Support multiple promo codes delimited by comma
+		codes := strings.Split(promoKode, ",")
+		appliedCodes := make(map[string]bool)
 
-		if err != nil {
-			return 0, 0, fmt.Errorf("gagal validasi promo: %w", err)
-		}
+		for _, code := range codes {
+			code = strings.TrimSpace(code)
+			if code == "" {
+				continue
+			}
 
-		if promoResponse.Success {
-			promoDiskon = promoResponse.DiskonJumlah
-		} else {
-			// Jika promo validation fails, return error
-			return 0, 0, fmt.Errorf("promo tidak valid: %s", promoResponse.Message)
+			// Prevent duplicate codes in the same request
+			if appliedCodes[code] {
+				continue
+			}
+			appliedCodes[code] = true
+
+			promoResponse, err := s.ApplyPromo(&models.ApplyPromoRequest{
+				Kode:          code,
+				Subtotal:      subtotal,
+				TotalQuantity: totalQuantity,
+				PelangganID:   pelangganID,
+				Items:         items,
+			})
+
+			if err != nil {
+				return 0, 0, fmt.Errorf("gagal validasi promo '%s': %w", code, err)
+			}
+
+			if promoResponse.Success {
+				promoDiskon += promoResponse.DiskonJumlah
+			} else {
+				// Jika promo validation fails, return error
+				return 0, 0, fmt.Errorf("promo '%s' tidak valid: %s", code, promoResponse.Message)
+			}
 		}
 	}
 
@@ -765,6 +816,23 @@ func (s *PromoService) calculateProductDiscount(promo *models.Promo, subtotal in
 					continue
 				}
 
+				// VALIDASI MINIMUM QTY / GRAMASI PER ITEM
+				if produk.Satuan == "kg" {
+					// Untuk produk curah, cek MinGramasi
+					if promo.MinGramasi > 0 && float64(item.BeratGram) < float64(promo.MinGramasi) {
+						fmt.Printf("[DISCOUNT SKIP] Item %s excluded: Weight %.2fg < Min %.2fg\n",
+							produk.Nama, item.BeratGram, promo.MinGramasi)
+						continue
+					}
+				} else {
+					// Untuk produk satuan, cek MinQuantity
+					if promo.MinQuantity > 0 && item.Jumlah < promo.MinQuantity {
+						fmt.Printf("[DISCOUNT SKIP] Item %s excluded: Qty %d < Min %d\n",
+							produk.Nama, item.Jumlah, promo.MinQuantity)
+						continue
+					}
+				}
+
 				// Hitung subtotal sesuai jenis produk
 				if produk.Satuan == "kg" {
 					// Produk curah: HargaSatuan per kg, BeratGram dalam gram
@@ -782,7 +850,7 @@ func (s *PromoService) calculateProductDiscount(promo *models.Promo, subtotal in
 			}
 		}
 	} else {
-		// Jika tidak ada produk spesifik, gunakan tipeProdukBerlaku
+		// Jika tidak ada produk spesifik, gunakan TipeProduk
 		for _, item := range items {
 			// Load produk untuk cek satuan
 			produk, err := s.produkRepo.GetByID(item.ProdukID)
@@ -790,19 +858,36 @@ func (s *PromoService) calculateProductDiscount(promo *models.Promo, subtotal in
 				continue
 			}
 
-			// Cek apakah produk sesuai dengan tipeProdukBerlaku
+			// Cek apakah produk sesuai dengan TipeProduk
 			isCurah := produk.Satuan == "kg"
 			shouldInclude := false
 
-			if promo.TipeProdukBerlaku == "semua" {
+			if promo.TipeProduk == "semua" {
 				shouldInclude = true
-			} else if promo.TipeProdukBerlaku == "curah" && isCurah {
+			} else if promo.TipeProduk == "curah" && isCurah {
 				shouldInclude = true
-			} else if promo.TipeProdukBerlaku == "satuan" && !isCurah {
+			} else if promo.TipeProduk == "satuan" && !isCurah {
 				shouldInclude = true
 			}
 
 			if shouldInclude {
+				// VALIDASI MINIMUM QTY / GRAMASI PER ITEM
+				if isCurah {
+					// Untuk produk curah, cek MinGramasi
+					if promo.MinGramasi > 0 && item.BeratGram < float64(promo.MinGramasi) {
+						fmt.Printf("[DISCOUNT SKIP] Item %s excluded: Weight %.2fg < Min %d.00g\n",
+							produk.Nama, item.BeratGram, promo.MinGramasi)
+						continue
+					}
+				} else {
+					// Untuk produk satuan, cek MinQuantity
+					if promo.MinQuantity > 0 && item.Jumlah < promo.MinQuantity {
+						fmt.Printf("[DISCOUNT SKIP] Item %s excluded: Qty %d < Min %d\n",
+							produk.Nama, item.Jumlah, promo.MinQuantity)
+						continue
+					}
+				}
+
 				// Hitung subtotal sesuai jenis produk
 				if isCurah {
 					// Produk curah: HargaSatuan per kg, BeratGram dalam gram
@@ -991,14 +1076,40 @@ func (s *PromoService) CalculateBuyXGetYTotal(promo *models.Promo, items []model
 
 	fmt.Printf("Product X: %s (ID: %d)\n", promo.ProdukX.Nama, promo.ProdukX.ID)
 
+	// Helper function for checking bulk unit (Robust)
+	isCurah := func(p *models.Produk) bool {
+		if p == nil {
+			return false
+		}
+		if strings.ToLower(p.JenisProduk) == "curah" {
+			return true
+		}
+		s := strings.ToLower(strings.TrimSpace(p.Satuan))
+		return s == "kg" || s == "gram" || s == "g" || s == "kilogram"
+	}
+
 	// Find product X in cart
 	var productXQuantity int
 	var productXHarga int
+	var usedWeightForX bool
+
 	for _, item := range items {
 		if item.ProdukID == promo.ProdukX.ID {
-			productXQuantity = item.Jumlah
 			productXHarga = item.HargaSatuan
-			fmt.Printf("Found in cart - Quantity: %d, Price: %d\n", productXQuantity, productXHarga)
+			// CHECK: Use BeratGram if available (User input weight), OR if product is Curah
+			if item.BeratGram > 0 {
+				productXQuantity = int(item.BeratGram)
+				usedWeightForX = true
+				fmt.Printf("Found in cart (Detected Curah via Weight) - Weight: %d g, Price/kg: %d\n", productXQuantity, productXHarga)
+			} else if isCurah(promo.ProdukX) {
+				productXQuantity = int(item.BeratGram)
+				usedWeightForX = true
+				fmt.Printf("Found in cart (Detected Curah via Product Type) - Weight: %d g, Price/kg: %d\n", productXQuantity, productXHarga)
+			} else {
+				productXQuantity = item.Jumlah
+				usedWeightForX = false
+				fmt.Printf("Found in cart (Satuan) - Quantity: %d, Price: %d\n", productXQuantity, productXHarga)
+			}
 			break
 		}
 	}
@@ -1029,19 +1140,40 @@ func (s *PromoService) CalculateBuyXGetYTotal(promo *models.Promo, items []model
 		}
 
 		// Hitung total item gratis
+		// Untuk curah, diskon adalah berat gratis * harga per kg / 1000
 		totalGratis := kelipatan * promo.GetQuantity
-		fmt.Printf("Total free items: %d\n", totalGratis)
+		fmt.Printf("Total free quantity (units/grams): %d\n", totalGratis)
 
 		// Hitung diskon (nilai dari item gratis)
-		diskon := totalGratis * productXHarga
+		var diskon int
+		if usedWeightForX {
+			// Curah: (gram * harga_per_kg) / 1000
+			diskon = int((float64(totalGratis) * float64(productXHarga)) / 1000.0)
+		} else {
+			// Satuan: qty * harga
+			diskon = totalGratis * productXHarga
+		}
 
-		totalHargaNormal := productXQuantity * productXHarga
+		// Hitung harga normal total
+		var totalHargaNormal int
+		if usedWeightForX {
+			totalHargaNormal = int((float64(productXQuantity) * float64(productXHarga)) / 1000.0)
+		} else {
+			totalHargaNormal = productXQuantity * productXHarga
+		}
+
 		totalHargaSetelahPromo := totalHargaNormal - diskon
 
 		fmt.Printf("Normal price: %d\n", totalHargaNormal)
 		fmt.Printf("Discount: %d\n", diskon)
 		fmt.Printf("Price after promo: %d\n", totalHargaSetelahPromo)
-		fmt.Printf("Keterangan: Total %d unit, bayar %d unit, gratis %d unit\n", productXQuantity, productXQuantity-totalGratis, totalGratis)
+
+		unitType := "unit"
+		if usedWeightForX {
+			unitType = "gram"
+		}
+		fmt.Printf("Keterangan: Total %d %s, bayar %d %s, gratis %d %s\n",
+			productXQuantity, unitType, productXQuantity-totalGratis, unitType, totalGratis, unitType)
 
 		return totalHargaSetelahPromo, diskon
 	} else {
@@ -1070,11 +1202,25 @@ func (s *PromoService) CalculateBuyXGetYTotal(promo *models.Promo, items []model
 		// Cari produk Y di cart
 		var productYQuantity int
 		var productYHarga int
+		var usedWeightForY bool
+
 		for _, item := range items {
 			if item.ProdukID == promo.ProdukY.ID {
-				productYQuantity = item.Jumlah
 				productYHarga = item.HargaSatuan
-				fmt.Printf("Product Y in cart - Quantity: %d, Price: %d\n", productYQuantity, productYHarga)
+				// CHECK Y: Use BeratGram if available, OR if product is Curah
+				if item.BeratGram > 0 {
+					productYQuantity = int(item.BeratGram)
+					usedWeightForY = true
+					fmt.Printf("Product Y in cart (Detected Curah via Weight) - Weight: %d g, Price/kg: %d\n", productYQuantity, productYHarga)
+				} else if isCurah(promo.ProdukY) {
+					productYQuantity = int(item.BeratGram)
+					usedWeightForY = true
+					fmt.Printf("Product Y in cart (Detected Curah detection) - Weight: %d g, Price/kg: %d\n", productYQuantity, productYHarga)
+				} else {
+					productYQuantity = item.Jumlah
+					usedWeightForY = false
+					fmt.Printf("Product Y in cart (Satuan) - Quantity: %d, Price: %d\n", productYQuantity, productYHarga)
+				}
 				break
 			}
 		}
@@ -1105,15 +1251,44 @@ func (s *PromoService) CalculateBuyXGetYTotal(promo *models.Promo, items []model
 		}
 
 		// Hitung diskon (nilai dari produk Y yang gratis)
-		diskon := gratisY * productYHarga
+		var diskon int
+		if usedWeightForY {
+			diskon = int((float64(gratisY) * float64(productYHarga)) / 1000.0)
+		} else {
+			diskon = gratisY * productYHarga
+		}
 
-		totalHargaNormal := (productXQuantity * productXHarga) + (productYQuantity * productYHarga)
+		// Hitung total harga normal untuk kedua produk
+		var totalHargaNormal int
+		if usedWeightForX {
+			totalHargaNormal = int((float64(productXQuantity) * float64(productXHarga)) / 1000.0)
+		} else {
+			totalHargaNormal = productXQuantity * productXHarga
+		}
+
+		if usedWeightForY {
+			totalHargaNormal += int((float64(productYQuantity) * float64(productYHarga)) / 1000.0)
+		} else {
+			totalHargaNormal += productYQuantity * productYHarga
+		}
+
 		totalHargaSetelahPromo := totalHargaNormal - diskon
 
 		fmt.Printf("Normal price: %d\n", totalHargaNormal)
 		fmt.Printf("Discount: %d\n", diskon)
 		fmt.Printf("Price after promo: %d\n", totalHargaSetelahPromo)
-		fmt.Printf("Keterangan: Beli %d %s, gratis %d %s\n", productXQuantity, promo.ProdukX.Nama, gratisY, promo.ProdukY.Nama)
+
+		unitTypeX := "unit"
+		if usedWeightForX {
+			unitTypeX = "gram"
+		}
+		unitTypeY := "unit"
+		if usedWeightForY {
+			unitTypeY = "gram"
+		}
+
+		fmt.Printf("Keterangan: Beli %d %s %s, gratis %d %s %s\n",
+			productXQuantity, unitTypeX, promo.ProdukX.Nama, gratisY, unitTypeY, promo.ProdukY.Nama)
 
 		return totalHargaSetelahPromo, diskon
 	}

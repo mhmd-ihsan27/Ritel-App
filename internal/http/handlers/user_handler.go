@@ -37,7 +37,7 @@ func (h *UserHandler) GetAllStaff(c *gin.Context) {
 }
 
 func (h *UserHandler) GetByID(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid user ID", err)
 		return
@@ -77,7 +77,7 @@ func (h *UserHandler) Update(c *gin.Context) {
 }
 
 func (h *UserHandler) Delete(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid user ID", err)
 		return
@@ -87,4 +87,25 @@ func (h *UserHandler) Delete(c *gin.Context) {
 		return
 	}
 	response.Success(c, nil, "User deleted successfully")
+}
+
+// AdminChangePassword allows admin to change password for any user
+func (h *UserHandler) AdminChangePassword(c *gin.Context) {
+	var req struct {
+		UserID      int64  `json:"userId" binding:"required"`
+		NewPassword string `json:"newPassword" binding:"required,min=6"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request body", err)
+		return
+	}
+
+	// Update password directly
+	if err := h.services.UserService.AdminChangePassword(req.UserID, req.NewPassword); err != nil {
+		response.BadRequest(c, "Failed to change password", err)
+		return
+	}
+
+	response.Success(c, nil, "Password changed successfully")
 }

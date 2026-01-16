@@ -220,7 +220,7 @@ const Toast = ({
                 )}
             </div>
 
-            <style jsx>{`
+            <style>{`
                 @keyframes shrinkWidth {
                     from { width: 100%; }
                     to { width: 0%; }

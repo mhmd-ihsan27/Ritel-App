@@ -19,37 +19,75 @@ func NewProdukRepository() *ProdukRepository {
 
 // Create inserts a new product
 func (r *ProdukRepository) Create(produk *models.Produk) error {
+	// Always use AUTO_INCREMENT for product IDs to ensure simple sequential IDs (1, 2, 3...)
+	// This prevents large/negative IDs that cause "product not found" errors
+
 	query := `
 		INSERT INTO produk (
 			sku, barcode, nama, kategori, berat, harga_beli, harga_jual,
 			stok, satuan, jenis_produk, kadaluarsa, tanggal_masuk, deskripsi, gambar,
 			hari_pemberitahuan_kadaluarsa, masa_simpan_hari
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	var id int64
-	err := database.QueryRow(
-		query,
-		produk.SKU,
-		produk.Barcode,
-		produk.Nama,
-		produk.Kategori,
-		produk.Berat,
-		produk.HargaBeli,
-		produk.HargaJual,
-		produk.Stok,
-		produk.Satuan,
-		produk.JenisProduk,
-		produk.Kadaluarsa,
-		produk.TanggalMasuk,
-		produk.Deskripsi,
-		produk.Gambar,
-		produk.HariPemberitahuanKadaluarsa,
-		produk.MasaSimpanHari,
-	).Scan(&id)
+	var err error
 
-	if err != nil {
-		return fmt.Errorf("failed to insert product: %w", err)
+	if database.IsSQLite() {
+		// SQLite: Use LastInsertId
+		result, execErr := database.Exec(
+			query,
+			produk.SKU,
+			produk.Barcode,
+			produk.Nama,
+			produk.Kategori,
+			produk.Berat,
+			produk.HargaBeli,
+			produk.HargaJual,
+			produk.Stok,
+			produk.Satuan,
+			produk.JenisProduk,
+			produk.Kadaluarsa,
+			produk.TanggalMasuk,
+			produk.Deskripsi,
+			produk.Gambar,
+			produk.HariPemberitahuanKadaluarsa,
+			produk.MasaSimpanHari,
+		)
+		if execErr != nil {
+			return fmt.Errorf("failed to insert product: %w", execErr)
+		}
+
+		id, err = result.LastInsertId()
+		if err != nil {
+			return fmt.Errorf("failed to get last insert id: %w", err)
+		}
+	} else {
+		// PostgreSQL: Use RETURNING id
+		queryWithReturning := query + " RETURNING id"
+		err = database.QueryRow(
+			queryWithReturning,
+			produk.SKU,
+			produk.Barcode,
+			produk.Nama,
+			produk.Kategori,
+			produk.Berat,
+			produk.HargaBeli,
+			produk.HargaJual,
+			produk.Stok,
+			produk.Satuan,
+			produk.JenisProduk,
+			produk.Kadaluarsa,
+			produk.TanggalMasuk,
+			produk.Deskripsi,
+			produk.Gambar,
+			produk.HariPemberitahuanKadaluarsa,
+			produk.MasaSimpanHari,
+		).Scan(&id)
+
+		if err != nil {
+			return fmt.Errorf("failed to insert product: %w", err)
+		}
 	}
 
 	produk.ID = int(id)
@@ -262,6 +300,7 @@ func (r *ProdukRepository) GetAll() ([]*models.Produk, error) {
 }
 
 func (r *ProdukRepository) CreateStokHistory(history *models.StokHistory) error {
+	// Always use AUTO_INCREMENT for consistency
 	query := `
         INSERT INTO stok_history (
             produk_id, stok_sebelum, stok_sesudah, perubahan,
@@ -269,7 +308,7 @@ func (r *ProdukRepository) CreateStokHistory(history *models.StokHistory) error 
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `
 
-	_, err := database.Exec(
+	result, err := database.Exec(
 		query,
 		history.ProdukID,
 		history.StokSebelum,
@@ -283,6 +322,14 @@ func (r *ProdukRepository) CreateStokHistory(history *models.StokHistory) error 
 
 	if err != nil {
 		return fmt.Errorf("failed to create stock history: %w", err)
+	}
+
+	// Get the last inserted ID if needed
+	if database.IsSQLite() {
+		id, err := result.LastInsertId()
+		if err == nil {
+			history.ID = int(id)
+		}
 	}
 
 	return nil

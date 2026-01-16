@@ -3,7 +3,6 @@ package sync
 import (
 	"database/sql"
 	"fmt"
-	"log"
 )
 
 // ExecWithSync executes a query on local database and queues it for remote sync
@@ -49,7 +48,6 @@ func ExecWithSync(tableName, operation string, query string, args ...interface{}
 
 	// Queue the sync operation
 	if err := Engine.QueueSync(tableName, operation, recordID, dataMap); err != nil {
-		log.Printf("[SYNC] Warning: Failed to queue sync for %s on %s: %v", operation, tableName, err)
 		// Don't fail the operation just because queueing failed
 	}
 
@@ -59,7 +57,6 @@ func ExecWithSync(tableName, operation string, query string, args ...interface{}
 // QueryRowWithSync is for SELECT operations (no sync needed, just uses local DB)
 func QueryRowWithSync(query string, args ...interface{}) *sql.Row {
 	if Engine == nil || Engine.localDB == nil {
-		log.Println("[SYNC] Warning: Sync engine not initialized, cannot query")
 		return nil
 	}
 	return Engine.localDB.QueryRow(query, args...)
@@ -75,8 +72,8 @@ func QueryWithSync(query string, args ...interface{}) (*sql.Rows, error) {
 
 // TransactionWithSync provides a transaction that will be synced
 type TransactionWithSync struct {
-	tx        *sql.Tx
-	tableName string
+	tx         *sql.Tx
+	tableName  string
 	operations []syncQueuedOp
 }
 
@@ -99,8 +96,8 @@ func BeginTx(tableName string) (*TransactionWithSync, error) {
 	}
 
 	return &TransactionWithSync{
-		tx:        tx,
-		tableName: tableName,
+		tx:         tx,
+		tableName:  tableName,
 		operations: make([]syncQueuedOp, 0),
 	}, nil
 }
@@ -152,9 +149,7 @@ func (t *TransactionWithSync) Commit() error {
 
 	// Queue all operations for sync
 	for _, op := range t.operations {
-		if err := Engine.QueueSync(op.tableName, op.operation, op.recordID, op.data); err != nil {
-			log.Printf("[SYNC] Warning: Failed to queue sync after commit: %v", err)
-		}
+		Engine.QueueSync(op.tableName, op.operation, op.recordID, op.data)
 	}
 
 	return nil
@@ -175,7 +170,6 @@ func ForceSyncNow() error {
 		return fmt.Errorf("server is offline, cannot sync")
 	}
 
-	log.Println("[SYNC] Manual sync triggered...")
 	return Engine.processPendingSyncs()
 }
 

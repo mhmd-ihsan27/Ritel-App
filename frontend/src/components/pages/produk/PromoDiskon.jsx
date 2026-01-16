@@ -230,6 +230,7 @@ const BundlingPreview = React.memo(({
 });
 
 // Komponen BuyXGetY Preview
+// Komponen BuyXGetY Preview
 const BuyXGetYPreview = React.memo(({ formData, formatRupiah }) => {
     const calculateExample = useCallback(() => {
         const { produkX, produkY, buyQuantity, getQuantity, tipeBuyGet } = formData;
@@ -240,22 +241,94 @@ const BuyXGetYPreview = React.memo(({ formData, formatRupiah }) => {
             return null;
         }
 
+        // Robust check for curah/weight-based products
+        const checkIsCurah = (p) => {
+            if (!p || !p.satuan) return false;
+            const s = p.satuan.toLowerCase().trim();
+            return s === 'kg' || s === 'gram' || s === 'g' || s === 'kilogram';
+        };
+
+        const isXCurah = checkIsCurah(produkX);
         const hargaX = produkX.hargaJual || 0;
         const hargaY = tipeBuyGet === 'sama' ? hargaX : (produkY ? produkY.hargaJual : 0);
-        const contohBeli = 6;
-        const kelipatan = Math.floor(contohBeli / qtyBeli);
-        const totalGratis = kelipatan * qtyGratis;
-        const totalBayar = contohBeli;
-        const totalHargaNormal = totalBayar * hargaX;
-        const totalPotongan = totalGratis * (tipeBuyGet === 'sama' ? hargaX : hargaY);
+
+        // Tentukan jumlah contoh pembelian
+        let contohBeli;
+        if (isXCurah) {
+            // Untuk curah, contoh beli adalah 1 set (buy + get) dalam gram
+            if (tipeBuyGet === 'sama') {
+                contohBeli = qtyBeli + qtyGratis;
+            } else {
+                contohBeli = qtyBeli;
+            }
+        } else {
+            // Untuk satuan, contoh beli minimal 6 atau 1 set, mana yang pas
+            const setSize = tipeBuyGet === 'sama' ? qtyBeli + qtyGratis : qtyBeli;
+            // Gunakan kelipatan setSize yang mendekati 6, atau minimal 1 setSize
+            contohBeli = setSize < 6 ? Math.ceil(6 / setSize) * setSize : setSize;
+        }
+
+        let totalGratis = 0;
+        let totalPotongan = 0;
+        let totalHargaNormal = 0;
+
+        // Perhitungan Simulasi
+        if (tipeBuyGet === 'sama') {
+            const setSize = qtyBeli + qtyGratis;
+            const kelipatan = Math.floor(contohBeli / setSize);
+            totalGratis = kelipatan * qtyGratis;
+
+            if (isXCurah) {
+                // Rumus: (berat / 1000) * harga_per_kg
+                totalHargaNormal = (contohBeli * hargaX) / 1000;
+                totalPotongan = (totalGratis * hargaX) / 1000;
+            } else {
+                totalHargaNormal = contohBeli * hargaX;
+                totalPotongan = totalGratis * hargaX;
+            }
+        } else {
+            // Produk Beda
+            const kelipatan = Math.floor(contohBeli / qtyBeli);
+            totalGratis = kelipatan * qtyGratis; // Ini adalah qty Y yang gratis
+
+            if (isXCurah) {
+                totalHargaNormal = (contohBeli * hargaX) / 1000;
+                // Asumsi Y juga curah jika satuannya kg, tapi logic di backend support mixed
+                // Untuk simulasi sederhana di frontend, kita anggap Y dapat full sesuai qtyGratis
+                const isYCurah = checkIsCurah(produkY);
+                if (isYCurah) {
+                    totalPotongan = (totalGratis * hargaY) / 1000;
+                } else {
+                    totalPotongan = totalGratis * hargaY;
+                }
+            } else {
+                totalHargaNormal = contohBeli * hargaX;
+                totalPotongan = totalGratis * hargaY;
+            }
+        }
+
         const totalHargaAkhir = totalHargaNormal - totalPotongan;
+
+        // Determine unit labels
+        const unitLabel = isXCurah ? 'gram' : 'item';
+
+        // Cek apakah Y curah (hanya relevan jika BEDA produk, atau SAMA produk dan isXCurah)
+        let isYCurah = false;
+        if (tipeBuyGet === 'sama') {
+            isYCurah = isXCurah;
+        } else {
+            isYCurah = checkIsCurah(produkY);
+        }
+        const unitGratisLabel = isYCurah ? 'gram' : 'item';
 
         return {
             contohBeli,
             totalGratis,
             totalHargaNormal,
             totalPotongan,
-            totalHargaAkhir
+            totalHargaAkhir,
+            unitLabel,
+            unitGratisLabel
         };
     }, [formData]);
 
@@ -279,8 +352,8 @@ const BuyXGetYPreview = React.memo(({ formData, formatRupiah }) => {
             </div>
             <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
-                    <span>Contoh: Beli {example.contohBeli} item</span>
-                    <span className="font-semibold">{example.totalGratis} item gratis</span>
+                    <span>Contoh: Beli {example.contohBeli} {example.unitLabel}</span>
+                    <span className="font-semibold">{example.totalGratis} {example.unitGratisLabel} gratis</span>
                 </div>
                 <div className="flex justify-between">
                     <span>Total Harga Normal:</span>
@@ -371,40 +444,41 @@ const PromoModal = React.memo(({
                 </div>
 
                 <div className="p-6 overflow-y-auto max-h-[calc(90vh-80px)]">
-                    <div className="mb-6">
-                        <h3 className="text-lg font-semibold text-gray-800 mb-4">Pilih Jenis Promo</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            {[
-                                { value: 'diskon_produk', label: 'Diskon Produk', icon: faPercent, color: 'green' },
-
-                                { value: 'buy_x_get_y', label: 'Buy X Get Y', icon: faGift, color: 'green' }
-                            ].map((type) => (
-                                <button
-                                    key={type.value}
-                                    type="button"
-                                    onClick={() => onJenisPromoChange(type.value)}
-                                    disabled={loading}
-                                    className={`p-4 border-2 rounded-xl text-left transition-all ${jenisPromo === type.value
-                                        ? 'border-green-500 bg-green-50 ring-1 ring-green-200'
-                                        : 'border-gray-200 hover:border-gray-300 bg-white'
-                                        } disabled:opacity-50 disabled:cursor-not-allowed`}
-                                >
-                                    <div className="flex items-center space-x-3">
-                                        <div className={`p-2 rounded-lg ${jenisPromo === type.value
-                                            ? 'bg-green-700 text-white'
-                                            : 'bg-gray-100 text-gray-600'
-                                            }`}>
-                                            <FontAwesomeIcon icon={type.icon} className={jenisPromo === type.value ? 'text-white' : 'text-gray-600'} />
+                    {!editMode && (
+                        <div className="mb-6">
+                            <h3 className="text-lg font-semibold text-gray-800 mb-4">Pilih Jenis Promo</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                {[
+                                    { value: 'diskon_produk', label: 'Diskon Produk', icon: faPercent, color: 'green' },
+                                    { value: 'buy_x_get_y', label: 'Buy X Get Y', icon: faGift, color: 'green' }
+                                ].map((type) => (
+                                    <button
+                                        key={type.value}
+                                        type="button"
+                                        onClick={() => onJenisPromoChange(type.value)}
+                                        disabled={loading}
+                                        className={`p-4 border-2 rounded-xl text-left transition-all ${jenisPromo === type.value
+                                            ? 'border-green-500 bg-green-50 ring-1 ring-green-200'
+                                            : 'border-gray-200 hover:border-gray-300 bg-white'
+                                            } disabled:opacity-50 disabled:cursor-not-allowed`}
+                                    >
+                                        <div className="flex items-center space-x-3">
+                                            <div className={`p-2 rounded-lg ${jenisPromo === type.value
+                                                ? 'bg-green-700 text-white'
+                                                : 'bg-gray-100 text-gray-600'
+                                                }`}>
+                                                <FontAwesomeIcon icon={type.icon} className={jenisPromo === type.value ? 'text-white' : 'text-gray-600'} />
+                                            </div>
+                                            <div>
+                                                <h4 className="font-semibold text-gray-800">{type.label}</h4>
+                                                <p className="text-gray-600 text-sm">Buat promo {type.label.toLowerCase()}</p>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <h4 className="font-semibold text-gray-800">{type.label}</h4>
-                                            <p className="text-gray-600 text-sm">Buat promo {type.label.toLowerCase()}</p>
-                                        </div>
-                                    </div>
-                                </button>
-                            ))}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
-                    </div>
+                    )}
 
                     <form ref={formRef} onSubmit={onSubmit} noValidate>
                         <div className="space-y-6">
@@ -452,30 +526,19 @@ const PromoModal = React.memo(({
                                         min={formData.tanggalMulai || getMinDate()}
                                         disabled={loading}
                                     />
-                                    <FormInput
-                                        label="Minimum Quantity"
-                                        name="minQuantity"
-                                        value={formData.minQuantity}
-                                        onChange={onNumberChange}
-                                        type="number"
-                                        placeholder="0"
-                                        min="0"
-                                        disabled={loading}
-                                        helperText="Minimum jumlah produk yang harus dibeli untuk aktifkan promo"
-                                    />
-                                    <FormSelect
-                                        label="Tipe Produk Berlaku"
-                                        name="tipeProdukBerlaku"
-                                        value={formData.tipeProdukBerlaku}
-                                        onChange={onInputChange}
-                                        options={[
-                                            { value: 'semua', label: '🌐 Semua Produk' },
-                                            { value: 'curah', label: '⚖️ Curah (kg)' },
-                                            { value: 'satuan', label: '📦 Satuan Tetap' }
-                                        ]}
-                                        disabled={loading || jenisPromo === 'buy_x_get_y'}
-                                        helperText={jenisPromo === 'buy_x_get_y' ? 'Buy X Get Y hanya untuk produk satuan tetap' : 'Pilih tipe produk yang berlaku untuk promo ini'}
-                                    />
+                                    {jenisPromo !== 'diskon_produk' && jenisPromo !== 'buy_x_get_y' && (
+                                        <FormInput
+                                            label="Minimum Quantity"
+                                            name="minQuantity"
+                                            value={formData.minQuantity}
+                                            onChange={onNumberChange}
+                                            type="number"
+                                            placeholder="0"
+                                            min="0"
+                                            disabled={loading}
+                                            helperText="Minimum jumlah produk yang harus dibeli untuk aktifkan promo"
+                                        />
+                                    )}
                                     <FormSelect
                                         label="Status Promo"
                                         name="status"
@@ -522,26 +585,26 @@ const PromoModal = React.memo(({
                                     </div>
                                 </div>
                             </div>
-                        </div>
 
-                        <div className="border-t border-gray-200 px-6 py-4 bg-gray-50 mt-6">
-                            <div className="flex justify-end space-x-3">
-                                <button
-                                    type="button"
-                                    onClick={handleModalClose}
-                                    disabled={loading}
-                                    className="px-6 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium disabled:opacity-50"
-                                >
-                                    Batal
-                                </button>
-                                <button
-                                    type="submit"
-                                    disabled={loading}
-                                    className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center space-x-2 font-medium"
-                                >
-                                    <FontAwesomeIcon icon={loading ? faClock : faSave} />
-                                    <span>{loading ? 'Menyimpan...' : 'Simpan Promo'}</span>
-                                </button>
+                            <div className="border-t border-gray-200 px-6 py-4 bg-gray-50 mt-6">
+                                <div className="flex justify-end space-x-3">
+                                    <button
+                                        type="button"
+                                        onClick={handleModalClose}
+                                        disabled={loading}
+                                        className="px-6 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium disabled:opacity-50"
+                                    >
+                                        Batal
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={loading}
+                                        className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center space-x-2 font-medium"
+                                    >
+                                        <FontAwesomeIcon icon={loading ? faClock : faSave} />
+                                        <span>{loading ? 'Menyimpan...' : 'Simpan Promo'}</span>
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </form>
@@ -567,6 +630,43 @@ const ProductSelectorModal = React.memo(({
     formatRupiah
 }) => {
     if (!showProductSelector) return null;
+
+    // FILTER PRODUK BERDASARKAN TIPE DI SINI (INSIDE MODAL)
+    let displayProducts = filteredProducts;
+
+    console.log('🔥 NEW FILTER CODE LOADED - v2.0');
+    console.log('All products:', filteredProducts.map(p => `${p.nama} | satuan: "${p.satuan}"`));
+
+    if (productSelectionType === 'diskon' && formData?.tipeProduk) {
+        if (formData.tipeProduk === 'curah') {
+            console.log('🔍 Filtering for CURAH (kg/kilogram/g/gram)');
+            // Curah: produk dengan satuan 'kg', 'kilogram', 'g', 'gram', dll
+            displayProducts = filteredProducts.filter(p => {
+                const satuan = (p?.satuan || '').toLowerCase().trim();
+                // Check for kg/kilogram or g/gram variations
+                const match = satuan === 'kg' || satuan === 'kilogram' ||
+                    satuan === 'g' || satuan === 'gram' ||
+                    satuan.includes('kg') || satuan.includes('gram');
+                console.log(`  ${match ? '✅' : '❌'} ${p.nama} | satuan: "${satuan}"`);
+                return match;
+            });
+        } else if (formData.tipeProduk === 'satuan') {
+            console.log('🔍 Filtering for SATUAN (NOT kg/gram)');
+            // Satuan: produk dengan satuan BUKAN kg/gram
+            displayProducts = filteredProducts.filter(p => {
+                const satuan = (p?.satuan || '').toLowerCase().trim();
+                // Exclude anything that looks like kg or gram
+                const isWeight = satuan === 'kg' || satuan === 'kilogram' ||
+                    satuan === 'g' || satuan === 'gram' ||
+                    satuan.includes('kg') || satuan.includes('gram');
+                const match = satuan !== '' && !isWeight;
+                console.log(`  ${match ? '✅' : '❌'} ${p.nama} | satuan: "${satuan}" | isWeight: ${isWeight}`);
+                return match;
+            });
+        }
+    }
+
+    console.log(`📊 Result: ${displayProducts.length} products after filter`);
 
     const handleProductSelect = (product) => {
         switch (productSelectionType) {
@@ -614,7 +714,7 @@ const ProductSelectorModal = React.memo(({
     };
 
     return (
-        <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 flex items-center justify-center z-[60] p-4">
             <div
                 className="absolute inset-0 bg-black/30 backdrop-blur-sm transition-opacity"
                 onClick={onClose}
@@ -662,7 +762,7 @@ const ProductSelectorModal = React.memo(({
 
                 <div className="overflow-y-auto max-h-[calc(80vh-140px)]">
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
-                        {filteredProducts.map(product => (
+                        {displayProducts.map(product => (
                             <div
                                 key={product.id}
                                 onClick={() => handleProductSelect(product)}
@@ -695,7 +795,7 @@ const ProductSelectorModal = React.memo(({
                 <div className="border-t border-gray-200 px-6 py-4 bg-gray-50">
                     <div className="flex justify-between items-center">
                         <span className="text-gray-600 text-sm">
-                            {filteredProducts.length} produk ditemukan
+                            {displayProducts.length} produk ditemukan
                         </span>
                         <div className="flex space-x-3">
                             <button
@@ -734,7 +834,9 @@ const PreviewPromoModal = React.memo(({
     if (!showPreviewModal || !previewPromo) return null;
 
     const renderPreviewContent = () => {
-        const tipePromo = previewPromo.tipe_promo || previewPromo.tipe;
+        // Fix: Check tipePromo (camelCase) which matches backend JSON
+        const tipePromo = previewPromo.tipePromo || previewPromo.tipe_promo;
+        console.log('Rendering preview for type:', tipePromo, 'Full object:', previewPromo);
 
         switch (tipePromo) {
             case 'diskon_produk':
@@ -1019,7 +1121,9 @@ const PromoDiskon = () => {
         kode: '',
         tipe: 'persen',
         nilai: 0,
-        minQuantity: 0,        // DIUBAH: minPembelian -> minQuantity
+        tipeProduk: '',   // Default kosong, user harus pilih
+        minGramasi: 100,         // Default 100 gram agar button Pilih Produk enabled
+        minQuantity: 1,        // Default 1 agar button Pilih Produk enabled
         maxDiskon: 0,
         tanggalMulai: '',
         tanggalSelesai: '',
@@ -1033,8 +1137,7 @@ const PromoDiskon = () => {
         diskonBundling: 0,
         produkX: null,
         produkY: null,
-        tipeBuyGet: 'sama',
-        tipeProdukBerlaku: 'semua'  // Tambahan: filter promo untuk curah/satuan/semua
+        tipeBuyGet: 'sama'
     });
 
     const [selectedProducts, setSelectedProducts] = useState([]);
@@ -1140,7 +1243,12 @@ const PromoDiskon = () => {
 
     const handleEditPromo = useCallback(async (promo) => {
         setEditMode(true);
-        setJenisPromo(promo.tipe_promo || promo.tipe);
+        // Fix: Map 'persen'/'nominal' to 'diskon_produk' if tipe_promo is missing
+        let editJenis = promo.tipe_promo || promo.tipe;
+        if (editJenis === 'persen' || editJenis === 'nominal') {
+            editJenis = 'diskon_produk';
+        }
+        setJenisPromo(editJenis);
 
         let promoProducts = [];
         try {
@@ -1157,6 +1265,8 @@ const PromoDiskon = () => {
             kode: promo.kode || '',
             tipe: promo.tipe,
             nilai: promo.nilai,
+            tipeProduk: promo.tipeProduk || promo.tipe_produk || '',
+            minGramasi: promo.minGramasi || 0,
             minQuantity: promo.minQuantity || 0,  // DIUBAH: minPembelian -> minQuantity
             maxDiskon: promo.maxDiskon,
             tanggalMulai: promo.tanggalMulai ? promo.tanggalMulai.split('T')[0] : '',
@@ -1171,8 +1281,7 @@ const PromoDiskon = () => {
             diskonBundling: promo.diskonBundling || 0,
             produkX: promo.produkX || null,
             produkY: promo.produkY || null,
-            tipeBuyGet: promo.tipeBuyGet || 'sama',
-            tipeProdukBerlaku: promo.tipeProdukBerlaku || 'semua'
+            tipeBuyGet: promo.tipeBuyGet || 'sama'
         });
         setShowModal(true);
     }, []);
@@ -1206,13 +1315,39 @@ const PromoDiskon = () => {
     const handlePreviewPromo = useCallback(async (promo) => {
         try {
             setLoading(true);
-            const products = await promoAPI.getProducts(promo.id);
-            setPreviewProducts(products || []);
-            setPreviewPromo(promo);
+
+            // Validate promo object and ID
+            if (!promo || !promo.id) {
+                throw new Error('Promo ID tidak valid');
+            }
+
+            console.log('🔍 Preview Promo - ID:', promo.id);
+            setPreviewPromo(promo); // Set promo dulu
+
+            try {
+                const products = await promoAPI.getProducts(promo.id);
+                console.log('✅ Products loaded:', products ? products.length : 0, 'items');
+                setPreviewProducts(products || []);
+            } catch (err) {
+                // If promo products load fails (e.g. promo not found in DB yet or no products selected)
+                // We still want to show the modal with the promo details we have
+                console.warn('⚠️ Warning: Could not load promo products:', err);
+
+                // If it's just "promo not found", it might mean no products attached yet or race condition
+                // Just use empty list and proceed
+                setPreviewProducts([]);
+
+                const msg = err?.message || String(err);
+                if (!msg.includes('promo not found')) {
+                    toast.showError(`Gagal memuat produk promo: ${msg}`);
+                }
+            }
+
             setShowPreviewModal(true);
         } catch (error) {
-            console.error('Error loading preview products:', error);
-            toast.showError('Gagal memuat data produk untuk preview');
+            console.error('❌ Error handling preview:', error);
+            const errorMessage = error?.message || String(error) || 'Unknown error';
+            toast.showError(`Gagal memuat preview: ${errorMessage}`);
         } finally {
             setLoading(false);
         }
@@ -1264,7 +1399,6 @@ const PromoDiskon = () => {
                 tipe: newJenisPromo === 'diskon_produk' ? 'persen' : prev.tipe,
                 tipeBundling: newJenisPromo === 'bundling' ? 'harga_tetap' : prev.tipeBundling,
                 tipeBuyGet: newJenisPromo === 'buy_x_get_y' ? 'sama' : prev.tipeBuyGet,
-                tipeProdukBerlaku: newJenisPromo === 'buy_x_get_y' ? 'satuan' : prev.tipeProdukBerlaku,
                 produkX: newJenisPromo === 'buy_x_get_y' ? null : prev.produkX,
                 produkY: newJenisPromo === 'buy_x_get_y' ? null : prev.produkY
             }));
@@ -1325,6 +1459,24 @@ const PromoDiskon = () => {
 
         switch (jenisPromo) {
             case 'diskon_produk':
+                // VALIDASI BARU: Tipe produk wajib dipilih
+                if (!formData.tipeProduk) {
+                    toast.showError('Pilih tipe produk terlebih dahulu (curah atau satuan)');
+                    return false;
+                }
+
+                // VALIDASI BARU: Minimal gramasi untuk curah
+                if (formData.tipeProduk === 'curah' && formData.minGramasi <= 0) {
+                    toast.showError('Minimal gramasi harus lebih dari 0 untuk promo produk curah');
+                    return false;
+                }
+
+                // VALIDASI BARU: Minimal quantity untuk satuan
+                if (formData.tipeProduk === 'satuan' && formData.minQuantity <= 0) {
+                    toast.showError('Minimal quantity harus lebih dari 0 untuk promo produk satuan');
+                    return false;
+                }
+
                 if (selectedProducts.length === 0) {
                     toast.showError('Pilih minimal 1 produk untuk diskon');
                     return false;
@@ -1383,9 +1535,9 @@ const PromoDiskon = () => {
 
             const payload = {
                 ...formData,
-                tipe_promo: jenisPromo,
+                tipePromo: jenisPromo,
                 nilai: Number(formData.nilai) || 0,
-                minQuantity: Number(formData.minQuantity) || 0,  // DIUBAH: minPembelian -> minQuantity
+                minQuantity: Number(formData.minQuantity) || 0,
                 maxDiskon: Number(formData.maxDiskon) || 0,
                 buyQuantity: Number(formData.buyQuantity) || 0,
                 getQuantity: Number(formData.getQuantity) || 0,
@@ -1393,7 +1545,8 @@ const PromoDiskon = () => {
                 diskonBundling: Number(formData.diskonBundling) || 0,
                 produkIds: selectedProducts.map(p => p.id),
                 produkX: formData.produkX ? formData.produkX.id : null,
-                produkY: formData.produkY ? formData.produkY.id : null
+                produkY: formData.produkY ? formData.produkY.id : null,
+                minGramasi: Number(formData.minGramasi) || 0
             };
 
             if (editMode) {
@@ -1412,7 +1565,11 @@ const PromoDiskon = () => {
 
             setShowModal(false);
             resetForm();
-            loadPromos();
+
+            // Wait a bit untuk memastikan promo ter-save di database sebelum reload
+            // Increase delay to 800ms to be safe against SQLite commit latency
+            await new Promise(resolve => setTimeout(resolve, 800));
+            await loadPromos();
         } catch (error) {
             console.error('Error saving promo:', error);
             toast.showError(error.message || 'Gagal menyimpan promo');
@@ -1556,12 +1713,13 @@ const PromoDiskon = () => {
         return { status: 'berlangsung', label: 'Sedang Berlangsung', color: 'green' };
     }, []);
 
-    const filteredProducts = useMemo(() =>
-        products.filter(product =>
+    const filteredProducts = useMemo(() => {
+        // Hanya filter berdasarkan search term, filtering by type dilakukan di modal
+        return products.filter(product =>
             product.nama.toLowerCase().includes(searchTerm.toLowerCase()) ||
             product.sku.toLowerCase().includes(searchTerm.toLowerCase())
-        ), [products, searchTerm]
-    );
+        );
+    }, [products, searchTerm]);
 
     const handlePageChange = useCallback((page) => {
         setCurrentPage(page);
@@ -1649,28 +1807,85 @@ const PromoDiskon = () => {
         <div className="bg-green-50 rounded-xl p-5 border border-green-200">
             <h3 className="text-lg font-semibold text-green-800 mb-4">Diskon Produk</h3>
             <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <FormSelect
+                        label="Tipe Produk *"
+                        name="tipeProduk"
+                        value={formData.tipeProduk}
+                        onChange={(e) => {
+                            const val = e.target.value;
+                            setFormData(prev => ({
+                                ...prev,
+                                tipeProduk: val,
+                                minGramasi: 0,
+                                minQuantity: 0
+                            }));
+                            setSelectedProducts([]); // Reset pilihan produk
+                        }}
+                        options={[
+                            { value: '', label: '-- Pilih Tipe Produk --' },
+                            { value: 'curah', label: 'Produk Curah (kg)' },
+                            { value: 'satuan', label: 'Produk Satuan (pcs)' }
+                        ]}
+                        disabled={loading}
+                    />
+
+                    {formData.tipeProduk === 'curah' ? (
+                        <FormInput
+                            label="Minimal Gramasi (gram) *"
+                            name="minGramasi"
+                            value={formData.minGramasi}
+                            onChange={handleDirectNumberChange}
+                            type="number"
+                            placeholder="Contoh: 500"
+                            min="1"
+                            required
+                            helperText={`💡 Customer harus beli minimal ${formData.minGramasi || 0}g produk curah`}
+                            disabled={loading}
+                        />
+                    ) : (
+                        <FormInput
+                            label="Minimal Quantity (pcs) *"
+                            name="minQuantity"
+                            value={formData.minQuantity}
+                            onChange={handleDirectNumberChange}
+                            type="number"
+                            placeholder="Contoh: 3"
+                            min="1"
+                            required
+                            helperText={`💡 Customer harus beli minimal ${formData.minQuantity || 0} pcs`}
+                            disabled={loading}
+                        />
+                    )}
+                </div>
+
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Pilih Produk *
+                        Pilih Produk {formData.tipeProduk === 'curah' ? 'Curah (kg)' : 'Satuan (pcs)'} *
                     </label>
                     <button
                         type="button"
                         onClick={() => openProductSelector('diskon')}
-                        className="w-full p-3 border border-gray-300 rounded-lg bg-white text-left hover:bg-gray-50 transition-colors"
-                        disabled={loading}
+                        className={`w-full p-3 border border-gray-300 rounded-lg bg-white text-left hover:bg-gray-50 transition-colors ${(formData.tipeProduk === 'curah' ? formData.minGramasi <= 0 : formData.minQuantity <= 0) ? 'opacity-50 cursor-not-allowed' : ''
+                            }`}
+                        disabled={loading || !formData.tipeProduk || (formData.tipeProduk === 'curah' ? Number(formData.minGramasi) <= 0 : Number(formData.minQuantity) <= 0)}
                     >
                         {selectedProducts.length > 0 ? (
                             <div>
-                                <span className="font-semibold">{selectedProducts.length} produk terpilih</span>
+                                <span className="font-semibold text-green-700">{selectedProducts.length} produk terpilih</span>
+                                <span className="text-green-600 text-xs block mb-1 font-medium">(Klik untuk ubah / tambah produk)</span>
                                 <span className="text-gray-500 text-sm block">
-                                    Total harga: {formatRupiah(selectedProducts.reduce((sum, p) => sum + (p.hargaJual || 0), 0))}
+                                    Total harga normal: {formatRupiah(selectedProducts.reduce((sum, p) => sum + (p.hargaJual || 0), 0))}
                                 </span>
                             </div>
                         ) : (
-                            <span className="text-gray-500">Pilih produk...</span>
+                            <span className="text-gray-500">
+                                {!formData.tipeProduk ? 'Silakan pilih tipe produk dulu...' : (formData.tipeProduk === 'curah' && formData.minGramasi <= 0) ? 'Silakan tentukan minimal gramasi...' : (formData.tipeProduk === 'satuan' && formData.minQuantity <= 0) ? 'Silakan tentukan minimal quantity...' : 'Klik untuk memilih produk...'}
+                            </span>
                         )}
                     </button>
                 </div>
+
                 <div className="grid grid-cols-2 gap-4">
                     <FormSelect
                         label="Tipe Diskon"
@@ -1705,7 +1920,7 @@ const PromoDiskon = () => {
                 )}
             </div>
         </div>
-    ), [formData.tipe, formData.nilai, selectedProducts, openProductSelector, handleDirectInputChange, handleDirectNumberChange, formatRupiah, loading]);
+    ), [formData, selectedProducts, openProductSelector, handleDirectInputChange, handleDirectNumberChange, formatRupiah, loading]);
 
     const renderBundlingForm = useCallback(() => {
         return (
@@ -1797,9 +2012,16 @@ const PromoDiskon = () => {
                 </div>
             </div>
         );
-    }, [formData.tipeBundling, formData.hargaBundling, formData.diskonBundling, selectedProducts, calculateTotalHargaNormal, openProductSelector, handleDirectInputChange, handleDirectNumberChange, formatRupiah, loading]);
+    }, [formData, selectedProducts, calculateTotalHargaNormal, openProductSelector, handleDirectInputChange, handleDirectNumberChange, formatRupiah, loading]);
 
     const renderBuyXGetYForm = useCallback(() => {
+        const getUnitLabel = (product) => {
+            if (!product) return '';
+            if (!product.satuan) return ' (Pcs)';
+            const s = product.satuan.toLowerCase();
+            if (s === 'kg' || s === 'gram' || s === 'g') return ' (Gram)';
+            return ` (${product.satuan.charAt(0).toUpperCase() + product.satuan.slice(1)})`;
+        };
         return (
             <div className="bg-lime-50 rounded-xl p-5 border border-lime-200">
                 <h3 className="text-lg font-semibold text-lime-800 mb-4">Buy X Get Y</h3>
@@ -1867,24 +2089,24 @@ const PromoDiskon = () => {
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <FormInput
-                            label="Beli (X) *"
+                            label={`Beli (X) *${getUnitLabel(formData.produkX)}`}
                             name="buyQuantity"
                             value={formData.buyQuantity}
                             onChange={handleDirectNumberChange}
                             type="number"
                             min="1"
-                            placeholder="Jumlah beli"
+                            placeholder={formData.produkX?.satuan === 'kg' ? "Contoh: 1000" : "Jumlah beli"}
                             required
                             disabled={loading}
                         />
                         <FormInput
-                            label="Gratis (Y) *"
+                            label={`Gratis (Y) *${getUnitLabel(formData.produkY || formData.produkX)}`}
                             name="getQuantity"
                             value={formData.getQuantity}
                             onChange={handleDirectNumberChange}
                             type="number"
                             min="1"
-                            placeholder="Jumlah gratis"
+                            placeholder={formData.produkY?.satuan === 'kg' || (!formData.produkY && formData.produkX?.satuan === 'kg') ? "Contoh: 500" : "Jumlah gratis"}
                             required
                             disabled={loading}
                         />

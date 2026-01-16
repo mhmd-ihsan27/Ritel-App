@@ -61,7 +61,7 @@ func (h *TransaksiHandler) GetByID(c *gin.Context) {
 		return
 	}
 
-	transaksi, err := h.services.TransaksiService.GetTransaksiByID(id)
+	transaksi, err := h.services.TransaksiService.GetTransaksiByID(int64(id))
 	if err != nil {
 		response.NotFound(c, "Transaction not found")
 		return
@@ -127,7 +127,7 @@ func (h *TransaksiHandler) GetTodayStats(c *gin.Context) {
 
 // GetByPelanggan retrieves transactions for a specific customer
 func (h *TransaksiHandler) GetByPelanggan(c *gin.Context) {
-	pelangganID, err := strconv.Atoi(c.Param("id"))
+	pelangganID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid customer ID", err)
 		return

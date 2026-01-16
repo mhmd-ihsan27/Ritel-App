@@ -51,7 +51,11 @@ const PengaturanStruk = () => {
         setLoading(true);
         try {
             const data = await printerAPI.getSettings();
+            console.log('[PRINTER SETTINGS] Raw data from API:', data);
+
             if (data) {
+                // The backend now handles paperWidth validation/migration
+                // We just provide safe defaults if fields are missing
                 setSettings({
                     printerName: data.printerName || '',
                     paperSize: data.paperSize || '80mm',
@@ -84,7 +88,18 @@ const PengaturanStruk = () => {
     const handleSave = async () => {
         setSaving(true);
         try {
-            await printerAPI.saveSettings(settings);
+            // Validate paperWidth before saving
+            const validatedSettings = {
+                ...settings,
+                paperWidth: Math.max(20, Math.min(60, parseInt(settings.paperWidth) || 48))
+            };
+
+            console.log('[PRINTER SETTINGS] Saving settings:', validatedSettings);
+            await printerAPI.saveSettings(validatedSettings);
+
+            // Update local state with validated value
+            setSettings(validatedSettings);
+
             addToast('Pengaturan struk berhasil disimpan', 'success');
         } catch (error) {
             console.error('Error saving settings:', error);
@@ -100,10 +115,21 @@ const PengaturanStruk = () => {
             return;
         }
 
+        // Save current paperWidth to verify it doesn't change
+        const paperWidthBeforeTest = settings.paperWidth;
+        console.log(`[PRINTER SETTINGS] Paper width before test print: ${paperWidthBeforeTest}`);
+
         setTesting(true);
         try {
             await printerAPI.testPrinter(settings.printerName);
             addToast('Test print berhasil dikirim ke printer', 'success');
+
+            // Verify paperWidth hasn't changed
+            console.log(`[PRINTER SETTINGS] Paper width after test print: ${settings.paperWidth}`);
+            if (settings.paperWidth !== paperWidthBeforeTest) {
+                console.warn(`[PRINTER SETTINGS] Paper width changed from ${paperWidthBeforeTest} to ${settings.paperWidth}! Restoring original value.`);
+                setSettings(prev => ({ ...prev, paperWidth: paperWidthBeforeTest }));
+            }
         } catch (error) {
             console.error('Error testing print:', error);
             addToast('Gagal melakukan test print', 'error');

@@ -5,6 +5,8 @@ import {container} from '../models';
 
 export function AddPoin(arg1:models.AddPoinRequest):Promise<models.Pelanggan>;
 
+export function AdminChangePassword(arg1:any):Promise<void>;
+
 export function ApplyPromo(arg1:models.ApplyPromoRequest):Promise<models.ApplyPromoResponse>;
 
 export function ChangePassword(arg1:models.ChangePasswordRequest):Promise<void>;
@@ -35,11 +37,15 @@ export function DeletePelanggan(arg1:number):Promise<void>;
 
 export function DeleteProduk(arg1:number):Promise<void>;
 
-export function DeletePromo(arg1:number):Promise<void>;
+export function DeletePromo(arg1:string):Promise<void>;
 
-export function DeleteUser(arg1:number):Promise<void>;
+export function DeleteUser(arg1:string):Promise<void>;
 
 export function DetectHardware():Promise<models.HardwareListResponse>;
+
+export function ForcePullSync():Promise<void>;
+
+export function ForcePushSync():Promise<void>;
 
 export function GetActivePromos():Promise<Array<models.Promo>>;
 
@@ -113,13 +119,13 @@ export function GetPoinSettings():Promise<models.PoinSettings>;
 
 export function GetPrintSettings():Promise<models.PrintSettings>;
 
-export function GetPromoByID(arg1:number):Promise<models.Promo>;
+export function GetPromoByID(arg1:string):Promise<models.Promo>;
 
 export function GetPromoByKode(arg1:string):Promise<models.Promo>;
 
 export function GetPromoForProduct(arg1:number):Promise<Array<models.Promo>>;
 
-export function GetPromoProducts(arg1:number):Promise<Array<models.Produk>>;
+export function GetPromoProducts(arg1:string):Promise<Array<models.Produk>>;
 
 export function GetReturnByID(arg1:number):Promise<models.ReturnDetail>;
 
@@ -129,19 +135,27 @@ export function GetSalesInsights(arg1:string,arg2:string):Promise<models.SalesIn
 
 export function GetSalesTrend(arg1:string,arg2:string):Promise<Array<models.SalesTrendResponse>>;
 
+export function GetShiftCashiers(arg1:string):Promise<Array<models.ShiftCashier>>;
+
+export function GetShiftDetail(arg1:string,arg2:string):Promise<models.ShiftDetailResponse>;
+
 export function GetShiftProductivity():Promise<Record<string, number>>;
 
-export function GetStaffHistoricalData(arg1:number):Promise<models.StaffHistoricalData>;
+export function GetShiftReports(arg1:string):Promise<models.ShiftReportsResponse>;
 
-export function GetStaffReport(arg1:number,arg2:string,arg3:string):Promise<models.StaffReport>;
+export function GetShiftSettings():Promise<Array<models.ShiftSetting>>;
 
-export function GetStaffReportDetail(arg1:number,arg2:string,arg3:string):Promise<models.StaffReportDetailWithItems>;
+export function GetStaffHistoricalData(arg1:string):Promise<models.StaffHistoricalData>;
 
-export function GetStaffReportWithMonthlyTrend(arg1:number,arg2:string,arg3:string):Promise<models.StaffReportWithTrend>;
+export function GetStaffReport(arg1:string,arg2:string,arg3:string):Promise<models.StaffReport>;
 
-export function GetStaffReportWithTrend(arg1:number,arg2:string,arg3:string):Promise<models.StaffReportWithTrend>;
+export function GetStaffReportDetail(arg1:string,arg2:string,arg3:string):Promise<models.StaffReportDetailWithItems>;
 
-export function GetStaffShiftData(arg1:number,arg2:string,arg3:string):Promise<Record<string, Record<string, any>>>;
+export function GetStaffReportWithMonthlyTrend(arg1:string,arg2:string,arg3:string):Promise<models.StaffReportWithTrend>;
+
+export function GetStaffReportWithTrend(arg1:string,arg2:string,arg3:string):Promise<models.StaffReportWithTrend>;
+
+export function GetStaffShiftData(arg1:string,arg2:string,arg3:string):Promise<Record<string, Record<string, any>>>;
 
 export function GetStokHistory(arg1:number):Promise<Array<models.StokHistory>>;
 
@@ -151,13 +165,13 @@ export function GetTopProducts(arg1:string,arg2:string,arg3:number):Promise<Arra
 
 export function GetTransaksiByDateRange(arg1:string,arg2:string):Promise<Array<models.Transaksi>>;
 
-export function GetTransaksiByID(arg1:number):Promise<models.TransaksiDetail>;
+export function GetTransaksiByID(arg1:string):Promise<models.TransaksiDetail>;
 
 export function GetTransaksiByNoTransaksi(arg1:string):Promise<models.TransaksiDetail>;
 
 export function GetTransaksiByPelanggan(arg1:number):Promise<Array<models.Transaksi>>;
 
-export function GetUserByID(arg1:number):Promise<models.User>;
+export function GetUserByID(arg1:string):Promise<models.User>;
 
 export function Greet(arg1:string):Promise<string>;
 
@@ -179,6 +193,8 @@ export function TestCashDrawer(arg1:string):Promise<models.TestHardwareResponse>
 
 export function TestPrint(arg1:string):Promise<void>;
 
+export function TestPrintByName(arg1:string):Promise<void>;
+
 export function TestPrinter(arg1:string):Promise<models.TestHardwareResponse>;
 
 export function TestScanner(arg1:string):Promise<models.TestHardwareResponse>;
@@ -196,6 +212,8 @@ export function UpdatePoinSettings(arg1:models.UpdatePoinSettingsRequest):Promis
 export function UpdateProduk(arg1:models.Produk):Promise<void>;
 
 export function UpdatePromo(arg1:models.UpdatePromoRequest):Promise<models.Promo>;
+
+export function UpdateShiftSettings(arg1:number,arg2:string,arg3:string,arg4:string):Promise<void>;
 
 export function UpdateStok(arg1:models.UpdateStokRequest):Promise<void>;
 

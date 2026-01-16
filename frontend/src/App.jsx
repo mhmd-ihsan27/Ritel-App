@@ -43,6 +43,7 @@ import PengaturanDevices from './components/pages/pengaturan/PengaturanDevices';
 import PengaturanStruk from './components/pages/pengaturan/PengaturanStruk';
 import HardwareSettings from './components/pages/settings/HardwareSettings';
 import ManajemenStaff from './components/pages/pengaturan/ManajemenStaff';
+import PengaturanSync from './components/pages/pengaturan/PengaturanSync';
 
 import StaffDashboard from './components/pages/dashboard/StaffDashboard';
 
@@ -213,6 +214,9 @@ const AppContent = () => {
 
             case 'manajemen-staff':
                 return <ManajemenStaff />;
+
+            case 'pengaturan-sync':
+                return <PengaturanSync />;
 
             default:
                 return <Dashboard dashboardData={dashboardData} formatRupiah={formatRupiah} />;

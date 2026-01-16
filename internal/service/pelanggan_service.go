@@ -95,7 +95,7 @@ func (s *PelangganService) GetAllPelanggan() ([]*models.Pelanggan, error) {
 }
 
 // GetPelangganByID retrieves a customer by ID
-func (s *PelangganService) GetPelangganByID(id int) (*models.Pelanggan, error) {
+func (s *PelangganService) GetPelangganByID(id int64) (*models.Pelanggan, error) {
 	pelanggan, err := s.pelangganRepo.GetByID(id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get customer: %w", err)
@@ -168,7 +168,7 @@ func (s *PelangganService) UpdatePelanggan(req *models.UpdatePelangganRequest) (
 }
 
 // DeletePelanggan deletes a customer with validation
-func (s *PelangganService) DeletePelanggan(id int) error {
+func (s *PelangganService) DeletePelanggan(id int64) error {
 
 	// 1. VALIDASI INPUT
 	if id <= 0 {
@@ -240,13 +240,18 @@ func (s *PelangganService) AddPoin(req *models.AddPoinRequest) (*models.Pelangga
 // CheckAndUpgradeLevel checks and upgrades/downgrades customer level based on points
 // This function supports both upgrade and downgrade based on current points
 // NOTE: This function is deprecated, use CheckAndUpdateLevel instead
-func (s *PelangganService) CheckAndUpgradeLevel(pelangganID int, poin int, totalBelanja int) error {
+func (s *PelangganService) CheckAndUpgradeLevel(pelangganID int64, poin int, totalBelanja int) error {
 	// Delegate to CheckAndUpdateLevel for consistency
 	return s.CheckAndUpdateLevel(pelangganID, poin)
 }
 
+// IncrementStats updates customer transaction statistics
+func (s *PelangganService) IncrementStats(pelangganID int64, totalBelanja int) error {
+	return s.pelangganRepo.IncrementStats(pelangganID, totalBelanja)
+}
+
 // ProcessTransaction updates customer stats after a transaction
-func (s *PelangganService) ProcessTransaction(pelangganID int, totalBelanja int) error {
+func (s *PelangganService) ProcessTransaction(pelangganID int64, totalBelanja int) error {
 	if pelangganID == 0 {
 		return nil // Not a registered customer
 	}
@@ -256,35 +261,23 @@ func (s *PelangganService) ProcessTransaction(pelangganID int, totalBelanja int)
 		return fmt.Errorf("failed to update stats: %w", err)
 	}
 
-	// Get point settings
-	settings, err := s.settingsRepo.GetPoinSettings()
-	if err != nil {
-		return fmt.Errorf("failed to get point settings: %w", err)
-	}
-
-	// Calculate points based on transaction amount
-	// Formula: points = total_transaction / min_transaction_for_points
-	// Example: If minTransactionForPoints = 5000
-	//   - Transaction Rp 5.000 → 1 point
-	//   - Transaction Rp 10.000 → 2 points
-	//   - Transaction Rp 50.000 → 10 points
-	pointsToAdd := totalBelanja / settings.MinTransactionForPoints
-	if pointsToAdd > 0 {
-		if err := s.pelangganRepo.AddPoin(pelangganID, pointsToAdd); err != nil {
-			return fmt.Errorf("failed to add points: %w", err)
+	// NOTE: Poin reward calculation and update is now handled in TransaksiService
+	// to ensure consistency and avoid double counting.
+	/*
+		// Get point settings
+		settings, err := s.settingsRepo.GetPoinSettings()
+		if err != nil {
+			return fmt.Errorf("failed to get point settings: %w", err)
 		}
 
-		// Get current customer to check total points
-		pelanggan, err := s.pelangganRepo.GetByID(pelangganID)
-		if err != nil {
-			fmt.Printf("[WARNING] Failed to get customer for level check: %v\n", err)
-		} else {
-			// Check and update level based on new points total
-			if err := s.CheckAndUpdateLevel(pelangganID, pelanggan.Poin); err != nil {
-				fmt.Printf("[WARNING] Failed to update level after transaction: %v\n", err)
+		// Calculate points based on transaction amount
+		pointsToAdd := totalBelanja / settings.MinTransactionForPoints
+		if pointsToAdd > 0 {
+			if err := s.pelangganRepo.AddPoin(pelangganID, pointsToAdd); err != nil {
+				return fmt.Errorf("failed to add points: %w", err)
 			}
 		}
-	}
+	*/
 
 	return nil
 }
@@ -295,10 +288,11 @@ func (s *PelangganService) GetPelangganByTipe(tipe string) ([]*models.Pelanggan,
 }
 
 // UpdatePoin updates customer points with validation and automatic level adjustment
-func (s *PelangganService) UpdatePoin(pelangganID int, newPoin int) error {
+func (s *PelangganService) UpdatePoin(pelangganID int64, newPoin int) error {
 
 	// 1. VALIDASI INPUT
-	if pelangganID <= 0 {
+	// Support offline IDs (negative values from SQLite)
+	if pelangganID == 0 {
 		return fmt.Errorf("ID pelanggan tidak valid")
 	}
 
@@ -339,7 +333,7 @@ func (s *PelangganService) UpdatePoin(pelangganID int, newPoin int) error {
 }
 
 // CheckAndUpdateLevel checks and updates customer level based on points (supports both upgrade and downgrade)
-func (s *PelangganService) CheckAndUpdateLevel(pelangganID int, currentPoin int) error {
+func (s *PelangganService) CheckAndUpdateLevel(pelangganID int64, currentPoin int) error {
 	fmt.Printf("[PELANGGAN SERVICE] CheckAndUpdateLevel called - ID: %d, Points: %d\n", pelangganID, currentPoin)
 
 	// 1. GET PELANGGAN DATA
@@ -406,7 +400,7 @@ func (s *PelangganService) calculateLevel(poin int, settings *models.PoinSetting
 }
 
 // UpdatePoinWithReason updates customer points with a specific reason (for audit trail)
-func (s *PelangganService) UpdatePoinWithReason(pelangganID int, newPoin int, reason string) error {
+func (s *PelangganService) UpdatePoinWithReason(pelangganID int64, newPoin int, reason string) error {
 	fmt.Printf("[PELANGGAN SERVICE] UpdatePoinWithReason - ID: %d, New Points: %d, Reason: %s\n",
 		pelangganID, newPoin, reason)
 
@@ -422,13 +416,13 @@ func (s *PelangganService) UpdatePoinWithReason(pelangganID int, newPoin int, re
 }
 
 // ResetPoin resets customer points to zero (for admin purposes)
-func (s *PelangganService) ResetPoin(pelangganID int) error {
+func (s *PelangganService) ResetPoin(pelangganID int64) error {
 	fmt.Printf("[PELANGGAN SERVICE] ResetPoin called for ID: %d\n", pelangganID)
 	return s.UpdatePoinWithReason(pelangganID, 0, "Reset by admin")
 }
 
 // GetPoinHistory retrieves point change history (placeholder - implement based on your needs)
-func (s *PelangganService) GetPoinHistory(pelangganID int) ([]map[string]interface{}, error) {
+func (s *PelangganService) GetPoinHistory(pelangganID int64) ([]map[string]interface{}, error) {
 	// Implementasi history perubahan poin bisa ditambahkan di sini
 	// Contoh: query ke tabel poin_history jika ada
 
@@ -439,7 +433,7 @@ func (s *PelangganService) GetPoinHistory(pelangganID int) ([]map[string]interfa
 }
 
 // GetPelangganWithStats retrieves customer with transaction statistics
-func (s *PelangganService) GetPelangganWithStats(pelangganID int) (*models.PelangganDetail, error) {
+func (s *PelangganService) GetPelangganWithStats(pelangganID int64) (*models.PelangganDetail, error) {
 	// Get basic customer info
 	pelanggan, err := s.pelangganRepo.GetByID(pelangganID)
 	if err != nil {

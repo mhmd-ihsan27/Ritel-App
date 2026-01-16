@@ -22,6 +22,20 @@ export const userAPI = {
   },
 
   /**
+   * Get all staff only
+   * @returns {Promise<Array>}
+   */
+  getAllStaff: async () => {
+    if (isWebMode()) {
+        const response = await client.get('/api/users?role=staff'); // Assuming query param support or separate endpoint
+        return response.data;
+    } else {
+        const { GetAllStaff } = await import('../../wailsjs/go/main/App');
+        return await GetAllStaff();
+    }
+  },
+
+  /**
    * Get user by ID
    * @param {number} id
    * @returns {Promise<object>}
@@ -77,6 +91,25 @@ export const userAPI = {
     } else {
       const { DeleteUser } = await import('../../wailsjs/go/main/App');
       return await DeleteUser(id);
+    }
+  },
+
+  /**
+   * Admin change password (admin only)
+   * @param {number} userId
+   * @param {string} newPassword
+   * @returns {Promise<object>}
+   */
+  adminChangePassword: async (userId, newPassword) => {
+    if (isWebMode()) {
+      const response = await client.post('/api/users/change-password', {
+        userId,
+        newPassword
+      });
+      return response.data;
+    } else {
+      const { AdminChangePassword } = await import('../../wailsjs/go/main/App');
+      return await AdminChangePassword({ userId, newPassword });
     }
   },
 };

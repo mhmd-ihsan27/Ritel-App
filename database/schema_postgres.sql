@@ -294,6 +294,22 @@ CREATE TABLE IF NOT EXISTS batch (
         REFERENCES produk(id) ON DELETE CASCADE
 );
 
+-- Transaksi Batch table (Tracks which batches were used in transactions)
+CREATE TABLE IF NOT EXISTS transaksi_batch (
+    id SERIAL PRIMARY KEY,
+    transaksi_id INTEGER NOT NULL,
+    batch_id VARCHAR(255) NOT NULL,
+    produk_id INTEGER NOT NULL,
+    qty_diambil REAL NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    CONSTRAINT fk_transaksi_batch_transaksi FOREIGN KEY (transaksi_id)
+        REFERENCES transaksi(id) ON DELETE CASCADE,
+    CONSTRAINT fk_transaksi_batch_batch FOREIGN KEY (batch_id)
+        REFERENCES batch(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_transaksi_batch_produk FOREIGN KEY (produk_id)
+        REFERENCES produk(id) ON DELETE RESTRICT
+);
+
 -- Poin Settings table (Loyalty points configuration)
 CREATE TABLE IF NOT EXISTS poin_settings (
     id INTEGER PRIMARY KEY,
@@ -360,6 +376,11 @@ CREATE INDEX IF NOT EXISTS idx_stok_history_tanggal ON stok_history(created_at);
 CREATE INDEX IF NOT EXISTS idx_batch_produk ON batch(produk_id);
 CREATE INDEX IF NOT EXISTS idx_batch_status ON batch(status);
 CREATE INDEX IF NOT EXISTS idx_batch_kadaluarsa ON batch(tanggal_kadaluarsa);
+
+-- Transaksi Batch indexes
+CREATE INDEX IF NOT EXISTS idx_transaksi_batch_transaksi ON transaksi_batch(transaksi_id);
+CREATE INDEX IF NOT EXISTS idx_transaksi_batch_batch ON transaksi_batch(batch_id);
+CREATE INDEX IF NOT EXISTS idx_transaksi_batch_produk ON transaksi_batch(produk_id);
 
 -- Users indexes
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);

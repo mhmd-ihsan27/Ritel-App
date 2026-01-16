@@ -6,6 +6,10 @@ export function AddPoin(arg1) {
   return window['go']['main']['App']['AddPoin'](arg1);
 }
 
+export function AdminChangePassword(arg1) {
+  return window['go']['main']['App']['AdminChangePassword'](arg1);
+}
+
 export function ApplyPromo(arg1) {
   return window['go']['main']['App']['ApplyPromo'](arg1);
 }
@@ -76,6 +80,14 @@ export function DeleteUser(arg1) {
 
 export function DetectHardware() {
   return window['go']['main']['App']['DetectHardware']();
+}
+
+export function ForcePullSync() {
+  return window['go']['main']['App']['ForcePullSync']();
+}
+
+export function ForcePushSync() {
+  return window['go']['main']['App']['ForcePushSync']();
 }
 
 export function GetActivePromos() {
@@ -254,8 +266,24 @@ export function GetSalesTrend(arg1, arg2) {
   return window['go']['main']['App']['GetSalesTrend'](arg1, arg2);
 }
 
+export function GetShiftCashiers(arg1) {
+  return window['go']['main']['App']['GetShiftCashiers'](arg1);
+}
+
+export function GetShiftDetail(arg1, arg2) {
+  return window['go']['main']['App']['GetShiftDetail'](arg1, arg2);
+}
+
 export function GetShiftProductivity() {
   return window['go']['main']['App']['GetShiftProductivity']();
+}
+
+export function GetShiftReports(arg1) {
+  return window['go']['main']['App']['GetShiftReports'](arg1);
+}
+
+export function GetShiftSettings() {
+  return window['go']['main']['App']['GetShiftSettings']();
 }
 
 export function GetStaffHistoricalData(arg1) {
@@ -354,6 +382,10 @@ export function TestPrint(arg1) {
   return window['go']['main']['App']['TestPrint'](arg1);
 }
 
+export function TestPrintByName(arg1) {
+  return window['go']['main']['App']['TestPrintByName'](arg1);
+}
+
 export function TestPrinter(arg1) {
   return window['go']['main']['App']['TestPrinter'](arg1);
 }
@@ -388,6 +420,10 @@ export function UpdateProduk(arg1) {
 
 export function UpdatePromo(arg1) {
   return window['go']['main']['App']['UpdatePromo'](arg1);
+}
+
+export function UpdateShiftSettings(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['UpdateShiftSettings'](arg1, arg2, arg3, arg4);
 }
 
 export function UpdateStok(arg1) {

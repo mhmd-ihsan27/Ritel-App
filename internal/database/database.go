@@ -12,7 +12,10 @@ import (
 
 	"ritel-app/internal/config"
 	"ritel-app/internal/database/dialect"
-	_ "github.com/lib/pq"
+
+	// _ "github.com/lib/pq" // Replaced by pgx
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -30,11 +33,17 @@ var SQLiteDialect dialect.Dialect
 // IsPostgreSQL returns true if the current database is PostgreSQL
 // This is a more reliable check than CurrentDialect which might be nil
 func IsPostgreSQL() bool {
-	return CurrentDriver == "postgres"
+	if CurrentDialect != nil && CurrentDialect.Name() == "postgres" {
+		return true
+	}
+	return CurrentDriver == "postgres" || CurrentDriver == "pgx"
 }
 
 // IsSQLite returns true if the current database is SQLite
 func IsSQLite() bool {
+	if CurrentDialect != nil && CurrentDialect.Name() == "sqlite3" {
+		return true
+	}
 	return CurrentDriver == "sqlite3"
 }
 
@@ -57,22 +66,22 @@ func InitDB() error {
 	// Single database mode
 	dbConfig := config.GetDatabaseConfig()
 
-	fmt.Println("========================================")
+	log.Println("========================================")
 	if dbConfig.Driver == "sqlite3" {
-		fmt.Println("💾 SQLITE MODE")
-	} else if dbConfig.Driver == "postgres" {
-		fmt.Println("📊 POSTGRESQL MODE")
+		log.Println("💾 SQLITE MODE")
+	} else if dbConfig.Driver == "postgres" || dbConfig.Driver == "pgx" {
+		log.Println("📊 POSTGRESQL MODE (pgx)")
 	}
-	fmt.Println("========================================")
+	log.Println("========================================")
 
 	// Initialize the appropriate dialect and store driver name
 	CurrentDriver = dbConfig.Driver // Store for reliable detection
 	switch dbConfig.Driver {
-	case "postgres":
-		fmt.Print("📊 Menghubungkan ke PostgreSQL... ")
+	case "postgres", "pgx":
+		log.Print("📊 Menghubungkan ke PostgreSQL... ")
 		CurrentDialect = &dialect.PostgreSQLDialect{}
 	case "sqlite3":
-		fmt.Print("💾 Menghubungkan ke SQLite... ")
+		log.Print("💾 Menghubungkan ke SQLite... ")
 		CurrentDialect = &dialect.SQLiteDialect{}
 	default:
 		return fmt.Errorf("unsupported database driver: %s", dbConfig.Driver)
@@ -82,31 +91,61 @@ func InitDB() error {
 	var dbPath string
 	var dsn string
 	if dbConfig.Driver == "sqlite3" {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("failed to get home directory: %w", err)
+		// Determine database path
+		// Rule: If DSN is absolute, use it. If relative (or empty), use AppData location with that filename.
+		useCustomPath := false
+		if dbConfig.DSN != "" && dbConfig.DSN != ":memory:" {
+			if filepath.IsAbs(dbConfig.DSN) {
+				dbPath = dbConfig.DSN
+				dsn = dbConfig.DSN
+				useCustomPath = true
+			}
 		}
 
-		newAppDir := filepath.Join(homeDir, AppDirName)
-		oldAppDir := filepath.Join(homeDir, OldAppDirName)
+		if !useCustomPath {
+			homeDir, err := os.UserHomeDir()
+			if err != nil {
+				return fmt.Errorf("failed to get home directory: %w", err)
+			}
 
-		// Ensure the new application directory exists
-		if err := ensureAppDirectory(newAppDir); err != nil {
-			return err
+			newAppDir := filepath.Join(homeDir, AppDirName)
+			oldAppDir := filepath.Join(homeDir, OldAppDirName)
+
+			// Ensure the new application directory exists
+			if err := ensureAppDirectory(newAppDir); err != nil {
+				return err
+			}
+
+			// Safely migrate data from the old hidden directory if it exists
+			if err := performDirectoryMigration(oldAppDir, newAppDir); err != nil {
+				log.Printf("Warning: Failed to migrate from old directory: %v", err)
+				log.Println("Please manually move your data from ~/.ritel-app to ~/ritel-app if needed")
+			}
+
+			// Use filename from DSN if provided (relative), otherwise default
+			filename := DatabaseName
+			if dbConfig.DSN != "" && dbConfig.DSN != ":memory:" {
+				filename = dbConfig.DSN
+			}
+
+			dbPath = filepath.Join(newAppDir, filename)
+			dsn = dbPath
 		}
-
-		// Safely migrate data from the old hidden directory if it exists
-		if err := performDirectoryMigration(oldAppDir, newAppDir); err != nil {
-			log.Printf("Warning: Failed to migrate from old directory: %v", err)
-			log.Println("Please manually move your data from ~/.ritel-app to ~/ritel-app if needed")
-		}
-
-		dbPath = filepath.Join(newAppDir, DatabaseName)
-		dsn = dbPath
 
 		// Create a backup of the existing database before making any changes
-		if err := createFileBackup(dbPath); err != nil {
-			log.Printf("Warning: Failed to create initial backup: %v", err)
+		// Only if it's a file that exists
+		if _, err := os.Stat(dbPath); err == nil {
+			// Logic to find backup dir relative to dbPath or standard
+			// For simplicity, let's just try to back it up if we can determine a backup dir
+			// OR just skip backup for custom DSN to update safely?
+			// The original code used global BackupDirName logic which might be tied to AppDir.
+
+			// Let's defer backup logic safely. If we are using ./ritel.db, we might want backups in ./backups
+			// But for now, let's just fix the path issue.
+			// Re-using exiting createFileBackup which expects the path.
+			if err := createFileBackup(dbPath); err != nil {
+				log.Printf("Warning: Failed to create initial backup: %v", err)
+			}
 		}
 	} else {
 		// For PostgreSQL, use the DSN from config
@@ -116,24 +155,24 @@ func InitDB() error {
 	// Open database connection and configure it for safety and performance
 	db, err := openAndConfigureDB(dbConfig.Driver, dsn)
 	if err != nil {
-		fmt.Println("❌ GAGAL")
+		log.Println("❌ GAGAL")
 		return err
 	}
 	DB = db
-	fmt.Println("✓ BERHASIL")
+	log.Println("✓ BERHASIL")
 
 	if dbConfig.Driver == "sqlite3" {
 		fmt.Printf("📁 Lokasi database: %s\n", dbPath)
 	}
 
 	// Validate integrity, create tables, run migrations, and fix schema issues
-	fmt.Println("⚙️  Menyiapkan schema database...")
+	log.Println("⚙️  Menyiapkan schema database...")
 	if err := setupAndValidateDatabaseSchema(); err != nil {
 		return fmt.Errorf("failed to setup database schema: %w", err)
 	}
 
-	fmt.Println("✓ Database siap digunakan!")
-	fmt.Println("========================================")
+	log.Println("✓ Database siap digunakan!")
+	log.Println("========================================")
 	return nil
 }
 
@@ -141,23 +180,30 @@ func InitDB() error {
 func initDualDatabase(dualConfig config.DualDatabaseConfig) error {
 	UseDualMode = true
 
-	fmt.Println("========================================")
-	fmt.Println("🔄 DUAL DATABASE MODE")
-	fmt.Println("========================================")
+	log.Println("========================================")
+	log.Println("🔄 DUAL DATABASE MODE")
+	log.Println("========================================")
 
 	// Initialize PostgreSQL
-	fmt.Print("📊 Menghubungkan ke PostgreSQL... ")
+	log.Print("📊 Menghubungkan ke PostgreSQL... ")
 	PostgresDialect = &dialect.PostgreSQLDialect{}
 	postgresDB, err := openAndConfigureDB(dualConfig.PostgreSQL.Driver, dualConfig.PostgreSQL.DSN)
 	if err != nil {
-		fmt.Println("❌ GAGAL")
+		log.Println("❌ GAGAL")
 		return fmt.Errorf("failed to initialize PostgreSQL: %w", err)
 	}
 	DBPostgres = postgresDB
-	fmt.Println("✓ BERHASIL")
+
+	// FIX: Ensure PostgreSQL uses BIGINT for IDs (offline ID compatibility)
+	log.Println("⚙️  Memeriksa schema PostgreSQL (BIGINT check)...")
+	if err := FixPostgresIDSchema(postgresDB); err != nil {
+		log.Printf("Warning: Failed to fix PostgreSQL ID schema: %v", err)
+	}
+
+	log.Println("✓ BERHASIL")
 
 	// Initialize SQLite
-	fmt.Print("💾 Menghubungkan ke SQLite... ")
+	log.Print("💾 Menghubungkan ke SQLite... ")
 	SQLiteDialect = &dialect.SQLiteDialect{}
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -181,30 +227,48 @@ func initDualDatabase(dualConfig config.DualDatabaseConfig) error {
 
 	sqliteDB, err := openAndConfigureDB(dualConfig.SQLite.Driver, dbPath)
 	if err != nil {
-		fmt.Println("❌ GAGAL")
+		log.Println("❌ GAGAL")
 		return fmt.Errorf("failed to initialize SQLite: %w", err)
 	}
 	DBSQLite = sqliteDB
-	fmt.Println("✓ BERHASIL")
+	log.Println("✓ BERHASIL")
 
-	// Set DB to PostgreSQL as primary for read operations
-	DB = DBPostgres
-	CurrentDialect = PostgresDialect
-	CurrentDriver = "postgres" // Set for reliable database detection
+	// Set DB to SQLite as primary for read/write operations (OFFLINE-FIRST)
+	DB = DBSQLite
+	CurrentDialect = SQLiteDialect
+	CurrentDriver = "sqlite3"
+
+	// WEB MODE OVERRIDE: If running as Web Server, force PostgreSQL as Primary
+	if os.Getenv("APP_MODE") == "web" {
+		DB = DBPostgres
+		CurrentDialect = PostgresDialect
+		CurrentDriver = "pgx"
+		log.Println("📍 WEB MODE DETECTED: Switched Primary to PostgreSQL (Cloud)")
+	}
 
 	fmt.Println("----------------------------------------")
-	fmt.Println("📍 PostgreSQL: Primary (Read/Write)")
-	fmt.Println("📍 SQLite: Backup (Write)")
-	fmt.Println("----------------------------------------")
+	if os.Getenv("APP_MODE") == "web" {
+		log.Println("📍 PostgreSQL: Primary (Read/Write) - CLOUD SERVER")
+		log.Println("📍 SQLite: Secondary (Ignored)")
+	} else {
+		log.Println("📍 SQLite: Primary (Read/Write) - OFFLINE-FIRST")
+		log.Println("📍 PostgreSQL: Cloud Backup (Sync)")
+	}
+	log.Println("----------------------------------------")
 
 	// Setup schema on both databases
-	fmt.Println("⚙️  Menyiapkan schema database...")
+	log.Println("⚙️  Menyiapkan schema database...")
 	if err := setupDualDatabaseSchema(); err != nil {
 		return fmt.Errorf("failed to setup dual database schema: %w", err)
 	}
 
-	fmt.Println("✓ Dual database mode aktif!")
-	fmt.Println("========================================")
+	// Initialize Smart Database Manager for intelligent routing
+	syncEnabled := config.GetSyncModeConfig().Enabled
+	InitSmartManager(DBSQLite, DBPostgres, syncEnabled)
+
+	log.Println("✓ Dual database mode aktif!")
+	log.Println("✓ Smart Database Manager initialized!")
+	log.Println("========================================")
 	return nil
 }
 
@@ -230,9 +294,9 @@ func setupDualDatabaseSchema() error {
 		return fmt.Errorf("failed to setup SQLite schema: %w", err)
 	}
 
-	// Restore to PostgreSQL as primary
+	// Restore to SQLite as primary (OFFLINE-FIRST)
 	DB = originalDB
-	CurrentDialect = PostgresDialect
+	CurrentDialect = SQLiteDialect
 
 	return nil
 }
@@ -365,9 +429,41 @@ func openAndConfigureDB(driver, dsn string) (*sql.DB, error) {
 		dsn = dsn + "?_foreign_keys=on&_journal_mode=WAL"
 	}
 
-	db, err := sql.Open(driver, dsn)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
+	// For PostgreSQL, add connection timeout and better error handling
+	if driver == "postgres" || driver == "pgx" {
+		// Convert to pgx v5 compatible format if needed
+		if !strings.HasPrefix(dsn, "postgres://") && !strings.HasPrefix(dsn, "postgresql://") {
+			// It's in key-value format, convert to URI for better pgx compatibility
+			// Keep original format but add timeout parameters
+			if !strings.Contains(dsn, "connect_timeout") {
+				dsn = dsn + " connect_timeout=10"
+			}
+			if !strings.Contains(dsn, "statement_timeout") {
+				dsn = dsn + " statement_timeout=30000" // 30 seconds
+			}
+		}
+	}
+
+	var db *sql.DB
+	var err error
+	if driver == "pgx" {
+		cfg, parseErr := pgx.ParseConfig(dsn)
+		if parseErr != nil {
+			return nil, fmt.Errorf("failed to parse pgx config: %w", parseErr)
+		}
+		cfg.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+		if cfg.RuntimeParams == nil {
+			cfg.RuntimeParams = map[string]string{}
+		}
+		if _, ok := cfg.RuntimeParams["statement_timeout"]; !ok {
+			cfg.RuntimeParams["statement_timeout"] = "30000"
+		}
+		db = stdlib.OpenDB(*cfg)
+	} else {
+		db, err = sql.Open(driver, dsn)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open database: %w", err)
+		}
 	}
 
 	configureConnectionPool(db)
@@ -385,6 +481,16 @@ func configureConnectionPool(db *sql.DB) {
 	db.SetConnMaxLifetime(30 * time.Minute)
 	db.SetMaxIdleConns(10)
 	db.SetMaxOpenConns(25)
+
+	// For PostgreSQL, set additional connection health parameters
+	if CurrentDriver == "postgres" || CurrentDriver == "pgx" {
+		// Optimize connection pool for stability
+		db.SetMaxOpenConns(25)
+		db.SetMaxIdleConns(5)
+		// Lower lifetime to prevent "driver: bad connection" when server closes idle conns
+		db.SetConnMaxLifetime(5 * time.Minute)
+		db.SetConnMaxIdleTime(2 * time.Minute)
+	}
 }
 
 // testConnectionAndSetPragmas pings the DB and sets database-specific settings.
@@ -404,6 +510,35 @@ func testConnectionAndSetPragmas(db *sql.DB, driver string) error {
 	return nil
 }
 
+// ResetConnectionPool resets the database connection pool for PostgreSQL
+// This should be called when encountering "bad connection" errors
+func ResetConnectionPool() error {
+	if DB == nil {
+		return fmt.Errorf("database is not initialized")
+	}
+
+	if CurrentDriver == "postgres" || CurrentDriver == "pgx" {
+		log.Println("[DATABASE] Resetting PostgreSQL connection pool due to connection issues...")
+
+		// Close all connections in the pool
+		DB.Close()
+
+		// Re-initialize the database connection
+		dbConfig := config.GetDatabaseConfig()
+		newDB, err := openAndConfigureDB(dbConfig.Driver, dbConfig.DSN)
+		if err != nil {
+			return fmt.Errorf("failed to reset connection pool: %w", err)
+		}
+
+		// Replace the global DB instance
+		DB = newDB
+		log.Println("[DATABASE] ✓ PostgreSQL connection pool reset successfully")
+		return nil
+	}
+
+	return fmt.Errorf("connection pool reset only supported for PostgreSQL")
+}
+
 // TranslateQuery translates a SQL query to the current database dialect
 func TranslateQuery(query string) string {
 	if CurrentDialect == nil {
@@ -413,22 +548,40 @@ func TranslateQuery(query string) string {
 }
 
 // QueryRow is a wrapper around DB.QueryRow that translates the query
-// In dual mode, queries are executed on PostgreSQL (primary)
+// Uses SmartManager if available for intelligent routing
 func QueryRow(query string, args ...interface{}) *sql.Row {
+	// Use SmartManager if available (offline-first)
+	if SmartManager != nil {
+		return SmartManager.QueryRow(query, args...)
+	}
+
+	// Fallback to direct DB access
 	translatedQuery := TranslateQuery(query)
 	return DB.QueryRow(translatedQuery, args...)
 }
 
 // Query is a wrapper around DB.Query that translates the query
-// In dual mode, queries are executed on PostgreSQL (primary)
+// Uses SmartManager if available for intelligent routing
 func Query(query string, args ...interface{}) (*sql.Rows, error) {
+	// Use SmartManager if available (offline-first)
+	if SmartManager != nil {
+		return SmartManager.Query(query, args...)
+	}
+
+	// Fallback to direct DB access
 	translatedQuery := TranslateQuery(query)
 	return DB.Query(translatedQuery, args...)
 }
 
 // Exec is a wrapper around DB.Exec that translates the query
-// In dual mode, executes on both PostgreSQL and SQLite
+// Uses SmartManager if available for auto-queue sync functionality
 func Exec(query string, args ...interface{}) (sql.Result, error) {
+	// Use SmartManager if available (offline-first with auto-queue)
+	if SmartManager != nil {
+		return SmartManager.Exec(query, args...)
+	}
+
+	// Fallback to dual mode or single mode
 	if !UseDualMode {
 		translatedQuery := TranslateQuery(query)
 		return DB.Exec(translatedQuery, args...)
@@ -600,8 +753,25 @@ func setupAndValidateDatabaseSchema() error {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 
+	// Create indexes and triggers after migrations (some depend on new columns)
+	if err := createIndexes(); err != nil {
+		return fmt.Errorf("failed to create indexes: %w", err)
+	}
+
+	if err := createTriggers(); err != nil {
+		return fmt.Errorf("failed to create triggers: %w", err)
+	}
+
 	// Fix any existing schema issues with safe methods
 	fixSchemaIssues()
+
+	// Initialize Sync Triggers for SQLite (Real-time sync to Web)
+	if IsSQLite() {
+		if err := createSyncOutboxTriggers(); err != nil {
+			log.Printf("Warning: Failed to create sync triggers: %v", err)
+			// Don't fail start-up for this, but log it
+		}
+	}
 
 	return nil
 }
@@ -615,9 +785,150 @@ func fixSchemaIssues() {
 	if err := FixOrphanedTransactionItems(); err != nil {
 		log.Printf("Warning: Failed to fix orphaned transaction items: %v", err)
 	}
+
+	if err := FixTransaksiItemBeratGramSchema(); err != nil {
+		log.Printf("Warning: Failed to fix transaksi_item beratgram schema: %v", err)
+	}
+
+	if err := FixTransaksiStaffColumnsSchema(); err != nil {
+		log.Printf("Warning: Failed to fix transaksi staff columns schema: %v", err)
+	}
+}
+
+// FixPostgresIDSchema updates PostgreSQL columns to BIGINT to support offline IDs
+func FixPostgresIDSchema(db *sql.DB) error {
+	// List of tables and columns that need to be BIGINT
+	// Order matters for Foreign Keys: Update referenced tables first?
+	// Actually, changing Type on FK columns can be tricky.
+	// The safest way usually involves dropping constraints, but let's try direct ALTER first.
+	// We use "ALTER TABLE ... ALTER COLUMN ... TYPE BIGINT".
+
+	targets := []struct {
+		Table  string
+		Column string
+	}{
+		{"transaksi", "id"},
+		{"transaksi", "pelanggan_id"},
+		{"transaksi", "staff_id"},
+
+		{"transaksi_item", "transaksi_id"}, // FK to transaksi.id
+		{"transaksi_item", "produk_id"},    // FK to produk.id
+		{"transaksi_item", "id"},
+
+		{"pembayaran", "transaksi_id"}, // FK to transaksi.id
+		{"pembayaran", "id"},
+
+		{"pelanggan", "id"},
+		{"produk", "id"},
+		{"stok_history", "id"},
+		{"stok_history", "produk_id"}, // FK to produk.id
+
+		{"returns", "id"},
+		{"returns", "transaksi_id"},
+
+		{"return_items", "id"},
+		{"return_items", "return_id"},
+		{"return_items", "produk_id"},
+
+		{"transaksi_batch", "id"},
+		{"transaksi_batch", "transaksi_item_id"},
+		{"transaksi_batch", "batch_id"},
+	}
+
+	for _, target := range targets {
+		// Check current type (optional optimization, but good to avoid errors on some DBs)
+		// For now we just execute. If it fails, we log and continue (it might already be BIGINT).
+
+		query := fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE BIGINT", target.Table, target.Column)
+		_, err := db.Exec(query)
+		if err != nil {
+			// Ignore if "relation does not exist" or similar non-critical errors
+			if !strings.Contains(err.Error(), "does not exist") && !strings.Contains(err.Error(), "undefined table") {
+				// Often fails due to dependencies. We log strictly.
+				log.Printf("[SCHEMA FIX] Warning: Could not alter %s.%s to BIGINT: %v", target.Table, target.Column, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// FixTransaksiStaffColumnsSchema checks and adds staff_id and staff_nama columns to transaksi table
+
+// FixTransaksiStaffColumnsSchema checks and adds staff_id and staff_nama columns to transaksi table
+func FixTransaksiStaffColumnsSchema() error {
+	// 1. Check/Add staff_id
+	var countID int
+	queryID := `SELECT COUNT(*) FROM pragma_table_info('transaksi') WHERE name='staff_id'`
+	if IsPostgreSQL() {
+		queryID = `SELECT COUNT(*) FROM information_schema.columns WHERE table_name='transaksi' AND column_name='staff_id'`
+	}
+	if err := DB.QueryRow(queryID).Scan(&countID); err != nil {
+		return fmt.Errorf("failed to check for staff_id column: %w", err)
+	}
+
+	if countID == 0 {
+		log.Println("[SCHEMA FIX] Adding missing column 'staff_id' to 'transaksi'...")
+		_, err := DB.Exec("ALTER TABLE transaksi ADD COLUMN staff_id INTEGER")
+		if err != nil {
+			return fmt.Errorf("failed to add staff_id column: %w", err)
+		}
+		log.Println("[SCHEMA FIX] ✓ Column 'staff_id' added successfully")
+	}
+
+	// 2. Check/Add staff_nama
+	var countNama int
+	queryNama := `SELECT COUNT(*) FROM pragma_table_info('transaksi') WHERE name='staff_nama'`
+	if IsPostgreSQL() {
+		queryNama = `SELECT COUNT(*) FROM information_schema.columns WHERE table_name='transaksi' AND column_name='staff_nama'`
+	}
+	if err := DB.QueryRow(queryNama).Scan(&countNama); err != nil {
+		return fmt.Errorf("failed to check for staff_nama column: %w", err)
+	}
+
+	if countNama == 0 {
+		log.Println("[SCHEMA FIX] Adding missing column 'staff_nama' to 'transaksi'...")
+		_, err := DB.Exec("ALTER TABLE transaksi ADD COLUMN staff_nama TEXT")
+		if err != nil {
+			return fmt.Errorf("failed to add staff_nama column: %w", err)
+		}
+		log.Println("[SCHEMA FIX] ✓ Column 'staff_nama' added successfully")
+	}
+
+	return nil
+}
+
+// FixTransaksiItemBeratGramSchema matches the schema for beratgram column
+func FixTransaksiItemBeratGramSchema() error {
+	// Check if column exists
+	var count int
+	query := `SELECT COUNT(*) FROM pragma_table_info('transaksi_item') WHERE name='beratgram'`
+	// For Postgres, use different query
+	if IsPostgreSQL() {
+		query = `SELECT COUNT(*) FROM information_schema.columns WHERE table_name='transaksi_item' AND column_name='beratgram'`
+	}
+
+	if err := DB.QueryRow(query).Scan(&count); err != nil {
+		return fmt.Errorf("failed to check for beratgram column: %w", err)
+	}
+
+	if count > 0 {
+		return nil // Column exists
+	}
+
+	log.Println("[SCHEMA FIX] Adding missing column 'beratgram' to 'transaksi_item'...")
+	_, err := DB.Exec("ALTER TABLE transaksi_item ADD COLUMN beratgram REAL DEFAULT 0")
+	if err != nil {
+		return fmt.Errorf("failed to add beratgram column: %w", err)
+	}
+
+	log.Println("[SCHEMA FIX] ✓ Column 'beratgram' added successfully")
+	return nil
 }
 
 // createFileBackup creates a full file-level backup of the database.
+// createFileBackup creates a full file-level backup of the database.
+// It checks if a backup for the current day already exists to avoid duplication.
 func createFileBackup(dbPath string) error {
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		return nil // No database to backup yet
@@ -626,6 +937,18 @@ func createFileBackup(dbPath string) error {
 	backupDir := filepath.Join(filepath.Dir(dbPath), BackupDirName)
 	if err := os.MkdirAll(backupDir, 0755); err != nil {
 		return fmt.Errorf("failed to create backup directory: %w", err)
+	}
+
+	// Check if a backup for today already exists
+	today := time.Now().Format("20060102")
+	files, err := os.ReadDir(backupDir)
+	if err == nil {
+		for _, file := range files {
+			if strings.HasPrefix(file.Name(), "ritel_backup_"+today) {
+				log.Printf("Backup for today already exists: %s. Skipping new backup.", file.Name())
+				return nil
+			}
+		}
 	}
 
 	timestamp := time.Now().Format("20060102_150405")
@@ -762,32 +1085,30 @@ func FixOrphanedTransactionItems() error {
 	log.Println("[DATABASE FIX] Starting FixOrphanedTransactionItems")
 	log.Println("========================================")
 
-	// 1. Create a backup of the table before making changes
-	backupTableName := "transaksi_item_backup_" + time.Now().Format("20060102_150405")
-	log.Printf("[DATABASE FIX] Creating table backup: %s", backupTableName)
-	_, err := DB.Exec(fmt.Sprintf("CREATE TABLE %s AS SELECT * FROM transaksi_item;", backupTableName))
-	if err != nil {
-		return fmt.Errorf("failed to create table backup: %w", err)
-	}
-
-	// 2. Count and log what will be changed
+	// 1. Count and log what will be changed
 	var count int
 	query := `
     SELECT COUNT(*) FROM transaksi_item
     WHERE produk_id IS NOT NULL AND produk_id NOT IN (SELECT id FROM produk)`
-	err = DB.QueryRow(query).Scan(&count)
+	err := DB.QueryRow(query).Scan(&count)
 	if err != nil {
 		return fmt.Errorf("failed to count orphaned items: %w", err)
 	}
 
 	if count == 0 {
 		log.Println("[DATABASE FIX] ✓ No orphaned transaction items found.")
-		// Optional: drop the empty backup table
-		// DB.Exec(fmt.Sprintf("DROP TABLE %s;", backupTableName))
 		return nil
 	}
 
 	log.Printf("[DATABASE FIX] ⚠ Found %d orphaned items. Setting produk_id to NULL.", count)
+
+	// 2. Create a backup of the table before making changes
+	backupTableName := "transaksi_item_backup_" + time.Now().Format("20060102_150405")
+	log.Printf("[DATABASE FIX] Creating table backup: %s", backupTableName)
+	_, err = DB.Exec(fmt.Sprintf("CREATE TABLE %s AS SELECT * FROM transaksi_item;", backupTableName))
+	if err != nil {
+		return fmt.Errorf("failed to create table backup: %w", err)
+	}
 
 	// 3. Perform the update within a transaction
 	tx, err := DB.Begin()
@@ -880,7 +1201,11 @@ func createTables() error {
 		}
 	}
 
-	// Create indexes
+	return nil
+}
+
+// createIndexes creates all necessary indexes.
+func createIndexes() error {
 	indexQueries := getIndexCreationQueries()
 	for i, query := range indexQueries {
 		translatedQuery := TranslateQuery(query)
@@ -888,8 +1213,11 @@ func createTables() error {
 			return fmt.Errorf("failed to create index %d: %w\nQuery: %s", i, err, translatedQuery)
 		}
 	}
+	return nil
+}
 
-	// Create triggers
+// createTriggers creates all necessary triggers.
+func createTriggers() error {
 	triggerQueries := getTriggerCreationQueries()
 	for i, query := range triggerQueries {
 		// Triggers need special handling for PostgreSQL vs SQLite
@@ -901,6 +1229,12 @@ func createTables() error {
 		translatedQuery := TranslateQuery(query)
 		if _, err := DB.Exec(translatedQuery); err != nil {
 			return fmt.Errorf("failed to create trigger %d: %w\nQuery: %s", i, err, translatedQuery)
+		}
+	}
+
+	if CurrentDialect != nil && CurrentDialect.Name() == "sqlite3" && config.GetSyncModeConfig().Enabled {
+		if err := createSyncOutboxTriggers(); err != nil {
+			return err
 		}
 	}
 
@@ -1019,6 +1353,7 @@ func getTableCreationQueries() []string {
             produk_kategori TEXT,
             harga_satuan INTEGER NOT NULL,
             jumlah INTEGER NOT NULL,
+            beratgram REAL DEFAULT 0,
             subtotal INTEGER NOT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (transaksi_id) REFERENCES transaksi(id) ON DELETE RESTRICT,
@@ -1076,6 +1411,8 @@ func getTableCreationQueries() []string {
             tanggal_selesai DATETIME,
             status TEXT DEFAULT 'aktif',
             deskripsi TEXT,
+            tipe_produk TEXT DEFAULT 'satuan',
+            min_gramasi INTEGER DEFAULT 0,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             deleted_at DATETIME,
@@ -1204,6 +1541,24 @@ func getTableCreationQueries() []string {
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`,
+
+		`CREATE TABLE IF NOT EXISTS sync_meta (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )`,
+
+		`CREATE TABLE IF NOT EXISTS sync_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            table_name TEXT NOT NULL,
+            operation TEXT NOT NULL,
+            record_id TEXT NOT NULL,
+            data TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            synced_at DATETIME,
+            retry_count INTEGER DEFAULT 0,
+            last_error TEXT,
+            status TEXT DEFAULT 'pending'
+        )`,
 	}
 }
 
@@ -1237,6 +1592,8 @@ func getIndexCreationQueries() []string {
 		`CREATE INDEX IF NOT EXISTS idx_produk_deleted_at ON produk(deleted_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_promo_deleted_at ON promo(deleted_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_kategori_deleted_at ON kategori(deleted_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_sync_queue_created ON sync_queue(created_at)`,
 	}
 }
 
@@ -1300,6 +1657,123 @@ func getTriggerCreationQueries() []string {
              UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
          END`,
 	}
+}
+
+func createSyncOutboxTriggers() error {
+	quote := func(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }
+
+	if _, err := DB.Exec(`INSERT INTO sync_meta (key, value) VALUES ('paused', '0') ON CONFLICT(key) DO UPDATE SET value = '0'`); err != nil {
+		return err
+	}
+
+	rows, err := DB.Query(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var tables []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return err
+		}
+		switch {
+		case name == "migrations" || name == "sync_queue" || name == "sync_meta" || name == "schema_migrations":
+			continue
+		case name == "shift_settings" || name == "shift_cashier":
+			continue
+		case strings.HasPrefix(name, "transaksi_item_backup_"):
+			continue
+		default:
+			tables = append(tables, name)
+		}
+	}
+
+	for _, table := range tables {
+		colRows, err := DB.Query(fmt.Sprintf(`PRAGMA table_info(%s)`, quote(table)))
+		if err != nil {
+			return err
+		}
+
+		var cols []string
+		hasID := false
+		for colRows.Next() {
+			var cid int
+			var name string
+			var ctype string
+			var notnull int
+			var dflt sql.NullString
+			var pk int
+			if err := colRows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+				colRows.Close()
+				return err
+			}
+			cols = append(cols, name)
+			if name == "id" {
+				hasID = true
+			}
+		}
+		colRows.Close()
+
+		if !hasID || len(cols) == 0 {
+			continue
+		}
+
+		buildJSON := func(prefix string) string {
+			parts := make([]string, 0, len(cols)*2)
+			for _, c := range cols {
+				parts = append(parts, fmt.Sprintf("'%s'", strings.ReplaceAll(c, `'`, `''`)))
+				parts = append(parts, fmt.Sprintf("%s.%s", prefix, quote(c)))
+			}
+			return "json_object(" + strings.Join(parts, ", ") + ")"
+		}
+
+		jsonNew := buildJSON("NEW")
+		jsonOld := buildJSON("OLD")
+
+		insertTrigger := fmt.Sprintf(`
+        CREATE TRIGGER IF NOT EXISTS sync_%s_insert
+        AFTER INSERT ON %s
+        FOR EACH ROW
+        WHEN (SELECT value FROM sync_meta WHERE key = 'paused') = '0'
+        BEGIN
+            INSERT INTO sync_queue (table_name, operation, record_id, data, status)
+            VALUES ('%s', 'INSERT', NEW.id, %s, 'pending');
+        END`, table, quote(table), table, jsonNew)
+
+		updateTrigger := fmt.Sprintf(`
+        CREATE TRIGGER IF NOT EXISTS sync_%s_update
+        AFTER UPDATE ON %s
+        FOR EACH ROW
+        WHEN (SELECT value FROM sync_meta WHERE key = 'paused') = '0'
+        BEGIN
+            INSERT INTO sync_queue (table_name, operation, record_id, data, status)
+            VALUES ('%s', 'UPDATE', NEW.id, %s, 'pending');
+        END`, table, quote(table), table, jsonNew)
+
+		deleteTrigger := fmt.Sprintf(`
+        CREATE TRIGGER IF NOT EXISTS sync_%s_delete
+        AFTER DELETE ON %s
+        FOR EACH ROW
+        WHEN (SELECT value FROM sync_meta WHERE key = 'paused') = '0'
+        BEGIN
+            INSERT INTO sync_queue (table_name, operation, record_id, data, status)
+            VALUES ('%s', 'DELETE', OLD.id, %s, 'pending');
+        END`, table, quote(table), table, jsonOld)
+
+		if _, err := DB.Exec(insertTrigger); err != nil {
+			return fmt.Errorf("failed to create sync insert trigger for %s: %w", table, err)
+		}
+		if _, err := DB.Exec(updateTrigger); err != nil {
+			return fmt.Errorf("failed to create sync update trigger for %s: %w", table, err)
+		}
+		if _, err := DB.Exec(deleteTrigger); err != nil {
+			return fmt.Errorf("failed to create sync delete trigger for %s: %w", table, err)
+		}
+	}
+
+	return nil
 }
 
 // runMigrations runs database migrations with proper tracking.
@@ -1480,7 +1954,16 @@ func getMigrationList() []struct {
 				);
 
 				-- Copy data from old table
-				INSERT INTO produk_new SELECT * FROM produk;
+				INSERT INTO produk_new (
+					id, sku, barcode, nama, kategori, berat, harga_beli, harga_jual, 
+					stok, satuan, kadaluarsa, tanggal_masuk, deskripsi, gambar, 
+					masa_simpan_hari, hari_pemberitahuan_kadaluarsa, created_at, updated_at
+				) 
+				SELECT 
+					id, sku, barcode, nama, kategori, berat, harga_beli, harga_jual, 
+					stok, satuan, kadaluarsa, tanggal_masuk, deskripsi, gambar, 
+					masa_simpan_hari, hari_pemberitahuan_kadaluarsa, created_at, updated_at 
+				FROM produk;
 
 				-- Drop old table
 				DROP TABLE produk;
@@ -1622,6 +2105,62 @@ func getMigrationList() []struct {
 		{
 			name:  "pg_convert_stok_history_perubahan_to_decimal",
 			query: `ALTER TABLE stok_history ALTER COLUMN perubahan TYPE REAL`,
+		},
+		{
+			name: "create_transaksi_batch_table",
+			query: `
+				CREATE TABLE IF NOT EXISTS transaksi_batch (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					transaksi_id INTEGER NOT NULL,
+					batch_id TEXT NOT NULL,
+					produk_id INTEGER NOT NULL,
+					qty_diambil REAL NOT NULL,
+					created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+					FOREIGN KEY (transaksi_id) REFERENCES transaksi(id) ON DELETE CASCADE,
+					FOREIGN KEY (batch_id) REFERENCES batch(id) ON DELETE RESTRICT,
+					FOREIGN KEY (produk_id) REFERENCES produk(id) ON DELETE RESTRICT
+				);
+				
+				CREATE INDEX IF NOT EXISTS idx_transaksi_batch_transaksi ON transaksi_batch(transaksi_id);
+				CREATE INDEX IF NOT EXISTS idx_transaksi_batch_batch ON transaksi_batch(batch_id);
+				CREATE INDEX IF NOT EXISTS idx_transaksi_batch_produk ON transaksi_batch(produk_id);
+			`,
+		},
+		{
+			name:  "add_print_settings_paper_width",
+			query: `ALTER TABLE print_settings ADD COLUMN paper_width INTEGER DEFAULT 32`,
+		},
+		{
+			name:  "add_print_settings_left_margin",
+			query: `ALTER TABLE print_settings ADD COLUMN left_margin INTEGER DEFAULT 0`,
+		},
+		{
+			name:  "add_print_settings_dash_line_char",
+			query: `ALTER TABLE print_settings ADD COLUMN dash_line_char TEXT DEFAULT '-'`,
+		},
+		{
+			name:  "add_print_settings_double_line_char",
+			query: `ALTER TABLE print_settings ADD COLUMN double_line_char TEXT DEFAULT '='`,
+		},
+		{
+			name:  "add_print_settings_header_alignment",
+			query: `ALTER TABLE print_settings ADD COLUMN header_alignment TEXT DEFAULT 'center'`,
+		},
+		{
+			name:  "add_print_settings_title_alignment",
+			query: `ALTER TABLE print_settings ADD COLUMN title_alignment TEXT DEFAULT 'center'`,
+		},
+		{
+			name:  "add_print_settings_footer_alignment",
+			query: `ALTER TABLE print_settings ADD COLUMN footer_alignment TEXT DEFAULT 'center'`,
+		},
+		{
+			name:  "add_promo_tipe_produk",
+			query: `ALTER TABLE promo ADD COLUMN tipe_produk TEXT DEFAULT 'satuan'`,
+		},
+		{
+			name:  "add_promo_min_gramasi",
+			query: `ALTER TABLE promo ADD COLUMN min_gramasi INTEGER DEFAULT 0`,
 		},
 	}
 }

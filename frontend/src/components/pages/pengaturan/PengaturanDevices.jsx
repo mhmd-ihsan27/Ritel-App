@@ -26,12 +26,24 @@ const PengaturanDevices = () => {
         try {
             const data = await printerAPI.getInstalledPrinters();
             setPrinters(data || []);
-            if (data && data.length === 0) {
-                addToast('Tidak ada printer yang terdeteksi', 'warning');
+            if (data && data.length === 0) {2
+                addToast('Tidak ada printer yang terdeteksi. Pastikan printer sudah terinstall di sistem.', 'warning');
             }
         } catch (error) {
             console.error('Error loading printers:', error);
-            addToast('Gagal memuat daftar printer', 'error');
+
+            // Extract detailed error message
+            let errorMessage = 'Gagal memuat daftar printer';
+
+            if (error.message) {
+                errorMessage += `: ${error.message}`;
+            } else if (error.response?.data?.message) {
+                errorMessage += `: ${error.response.data.message}`;
+            } else if (typeof error === 'string') {
+                errorMessage += `: ${error}`;
+            }
+
+            addToast(errorMessage, 'error');
             setPrinters([]);
         } finally {
             setLoading(false);
@@ -52,17 +64,28 @@ const PengaturanDevices = () => {
 
     const handleSetDefaultPrinter = async (printerName) => {
         try {
-            const updatedSettings = {
-                ...settings,
-                printerName: printerName,
-            };
-            await printerAPI.saveSettings(updatedSettings);
+            await printerAPI.setDefaultPrinter(printerName);
             setSelectedPrinter(printerName);
-            setSettings(updatedSettings);
+            setSettings({ ...(settings || {}), printerName });
             addToast(`Printer "${printerName}" telah ditetapkan sebagai default`, 'success');
         } catch (error) {
             console.error('Error setting default printer:', error);
-            addToast('Gagal menetapkan printer default', 'error');
+
+            // Extract detailed error message
+            let errorMessage = 'Gagal menetapkan printer default';
+
+            if (error.message) {
+                errorMessage += `: ${error.message}`;
+            } else if (error.response?.data?.message) {
+                errorMessage += `: ${error.response.data.message}`;
+            } else if (error.response?.data?.error) {
+                errorMessage += `: ${error.response.data.error}`;
+            } else if (typeof error === 'string') {
+                errorMessage += `: ${error}`;
+            }
+
+            // Show detailed error in toast
+            addToast(errorMessage, 'error');
         }
     };
 
@@ -73,7 +96,30 @@ const PengaturanDevices = () => {
             addToast(`Test print berhasil dikirim ke "${printerName}"`, 'success');
         } catch (error) {
             console.error('Error test print:', error);
-            addToast(`Gagal test print: ${error.message || error}`, 'error');
+
+            // Extract detailed error message
+            let errorMessage = `Gagal test print ke "${printerName}"`;
+
+            if (error.message) {
+                errorMessage += `: ${error.message}`;
+            } else if (error.response?.data?.message) {
+                errorMessage += `: ${error.response.data.message}`;
+            } else if (error.response?.data?.error) {
+                errorMessage += `: ${error.response.data.error}`;
+            } else if (typeof error === 'string') {
+                errorMessage += `: ${error}`;
+            }
+
+            // Add troubleshooting hints based on error
+            if (error.message?.includes('not found')) {
+                errorMessage += '. Printer tidak ditemukan di sistem.';
+            } else if (error.message?.includes('offline')) {
+                errorMessage += '. Printer sedang offline atau tidak terhubung.';
+            } else if (error.message?.includes('access denied')) {
+                errorMessage += '. Akses ke printer ditolak.';
+            }
+
+            addToast(errorMessage, 'error');
         } finally {
             setTestingPrinter(null);
         }

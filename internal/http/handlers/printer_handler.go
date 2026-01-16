@@ -83,3 +83,19 @@ func (h *PrinterHandler) SaveSettings(c *gin.Context) {
 	}
 	response.Success(c, nil, "Print settings saved successfully")
 }
+
+// SetDefault sets the default printer name only
+func (h *PrinterHandler) SetDefault(c *gin.Context) {
+    var req struct {
+        PrinterName string `json:"printerName" binding:"required"`
+    }
+    if err := c.ShouldBindJSON(&req); err != nil {
+        response.BadRequest(c, "Invalid request body", err)
+        return
+    }
+    if err := h.services.PrinterService.SetDefaultPrinter(req.PrinterName); err != nil {
+        response.InternalServerError(c, "Failed to set default printer", err)
+        return
+    }
+    response.Success(c, nil, "Default printer updated")
+}

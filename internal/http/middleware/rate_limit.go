@@ -6,8 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"ritel-app/internal/http/response"
+
+	"github.com/gin-gonic/gin"
 )
 
 // RateLimiter manages rate limiting for different endpoints
@@ -16,8 +17,8 @@ type RateLimiter struct {
 	mu       sync.RWMutex
 
 	// Default rate limit configuration
-	defaultLimit    int           // requests
-	defaultWindow   time.Duration // time window
+	defaultLimit  int           // requests
+	defaultWindow time.Duration // time window
 
 	// Cleanup interval
 	cleanupInterval time.Duration
@@ -115,7 +116,7 @@ func (rl *RateLimiter) cleanupVisitors() {
 
 			// Remove visitor if no recent requests
 			if len(visitor.timestamps) == 0 ||
-			   now.Sub(visitor.timestamps[len(visitor.timestamps)-1]) > rl.defaultWindow*2 {
+				now.Sub(visitor.timestamps[len(visitor.timestamps)-1]) > rl.defaultWindow*2 {
 				delete(rl.visitors, ip)
 			}
 

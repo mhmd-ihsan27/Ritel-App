@@ -81,13 +81,13 @@ const LogoutModal = ({
                         <div className="bg-gray-50 rounded-lg p-3 mb-4">
                             <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
                                 <span className={`px-2 py-1 rounded ${userRole === 'admin'
-                                        ? 'bg-blue-100 text-blue-700'
-                                        : 'bg-green-100 text-green-700'
+                                    ? 'bg-blue-100 text-blue-700'
+                                    : 'bg-green-100 text-green-700'
                                     }`}>
                                     {userRole === 'admin' ? 'Admin' : 'Staff'}
                                 </span>
                                 <span>•</span>
-                                <span>VVRDailyFresh</span>
+                                <span>Nuansa Sayur</span>
                             </div>
                         </div>
 
@@ -174,7 +174,7 @@ const Header = ({
                             <div className="bg-green-100 p-2 rounded-lg mr-3">
                                 <FontAwesomeIcon icon={faLeaf} className="text-green-600 text-2xl" />
                             </div>
-                            <h1 className="text-xl font-bold text-gray-800">VVRDailyFresh</h1>
+                            <h1 className="text-xl font-bold text-gray-800">Nuansa Sayur</h1>
                         </div>
                         <div className="flex items-center space-x-3">
                             <div className="flex items-center space-x-2 bg-gray-50 px-2 py-1 rounded">
@@ -182,8 +182,8 @@ const Header = ({
                                 <span className="text-xs text-gray-700">{getShortDate()}</span>
                             </div>
                             <span className={`text-xs px-2 py-1 rounded ${user?.role === 'admin'
-                                    ? 'bg-blue-600 text-white'
-                                    : 'bg-green-600 text-white'
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-green-600 text-white'
                                 }`}>
                                 {user?.role === 'admin' ? 'Admin' : 'Staff'}
                             </span>
@@ -214,7 +214,7 @@ const Header = ({
                         <div className="bg-green-100 p-3 rounded-xl mr-3">
                             <FontAwesomeIcon icon={faLeaf} className="text-green-600 text-2xl" />
                         </div>
-                        <h1 className="text-xl font-bold text-gray-800">VVRDailyFresh</h1>
+                        <h1 className="text-xl font-bold text-gray-800">Nuansa Sayur</h1>
                     </div>
                     <div className="flex items-center space-x-6">
                         <div className="flex items-center space-x-2 bg-gray-50 px-3 py-2 rounded-lg">
@@ -263,8 +263,8 @@ const Header = ({
                                 Halo, <span className="font-semibold">{user?.namaLengkap || 'Pengguna'}</span>
                             </span>
                             <span className={`px-3 py-1 rounded text-sm font-medium ${user?.role === 'admin'
-                                    ? 'bg-blue-600 text-white'
-                                    : 'bg-green-600 text-white'
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-green-600 text-white'
                                 }`}>
                                 {user?.role === 'admin' ? 'Admin' : 'Staff'}
                             </span>

@@ -585,7 +585,7 @@ const DetailPelangganPopup = ({ isOpen, onClose, pelanggan, onEdit, onDelete, sh
             // Second try: Get transaction history separately
             if (window.go && window.go.main && window.go.main.App && window.go.main.App.GetTransaksiByPelanggan) {
                 try {
-                    history = await window.go.main.App.transaksiAPI.getByPelanggan(parseInt(pelanggan.id));
+                    history = await window.go.main.App.transaksiAPI.getByPelanggan(String(pelanggan.id));
                     console.log('✅ Transaction history loaded:', history.length, 'transactions');
                 } catch (error) {
                     console.warn('❌ Failed to load transaction history:', error);
@@ -772,7 +772,7 @@ const DetailPelangganPopup = ({ isOpen, onClose, pelanggan, onEdit, onDelete, sh
                                     <div className="flex justify-between items-start">
                                         <div>
                                             <h2 className="text-2xl font-bold text-gray-800">{pelanggan.nama}</h2>
-                                            <p className="text-gray-600">ID: {pelanggan.id}</p>
+                                            {/* <p className="text-gray-600">ID: {pelanggan.id}</p> */}
                                         </div>
                                         <span className={`px-3 py-1 rounded-full text-sm font-medium ${levelInfo.color}`}>
                                             {levelInfo.label}
@@ -1087,7 +1087,7 @@ const EditPelangganPopup = ({ isOpen, onClose, pelanggan, onSave, showToast }) =
 
         try {
             const updateData = {
-                id: parseInt(pelanggan.id, 10),
+                id: String(pelanggan.id),
                 nama: formData.nama.trim(),
                 telepon: formData.telepon.trim(),
                 email: formData.email.trim(),
@@ -1420,7 +1420,7 @@ const DaftarPelanggan = ({ pelangganData = [] }) => {
 
             try {
                 return {
-                    id: parseInt(item.id) || 0,
+                    id: String(item.id),
                     nama: String(item.nama || 'Tidak ada nama'),
                     telepon: String(item.telepon || ''),
                     email: String(item.email || ''),
@@ -1613,7 +1613,7 @@ const DaftarPelanggan = ({ pelangganData = [] }) => {
 
             // Prepare update request object (no need for model instance)
             const request = {
-                id: parseInt(pelangganData.id, 10),
+                id: String(pelangganData.id),
                 nama: pelangganData.nama?.trim() || '',
                 telepon: pelangganData.telepon?.trim() || '',
                 email: pelangganData.email?.trim() || '',
@@ -1655,7 +1655,7 @@ const DaftarPelanggan = ({ pelangganData = [] }) => {
         if (!confirmDelete) return;
 
         try {
-            await pelangganAPI.delete(parseInt(pelanggan.id, 10));
+            await pelangganAPI.delete(String(pelanggan.id));
             showToast(`Pelanggan "${pelanggan.nama}" berhasil dihapus!`, 'success');
             await loadPelanggan(); // Reload data
         } catch (error) {
@@ -1978,7 +1978,7 @@ const DaftarPelanggan = ({ pelangganData = [] }) => {
                                                     </div>
                                                     <div>
                                                         <h3 className="font-semibold text-gray-800">{pelanggan.nama}</h3>
-                                                        <p className="text-xs text-gray-500">{pelanggan.id}</p>
+                                                        {/* <p className="text-xs text-gray-500">{pelanggan.id}</p> */}
                                                     </div>
                                                 </div>
                                                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${levelInfo.color}`}>

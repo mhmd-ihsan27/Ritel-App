@@ -28,7 +28,7 @@ func (h *PelangganHandler) GetAll(c *gin.Context) {
 }
 
 func (h *PelangganHandler) GetByID(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid customer ID", err)
 		return
@@ -90,7 +90,7 @@ func (h *PelangganHandler) Update(c *gin.Context) {
 }
 
 func (h *PelangganHandler) Delete(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid customer ID", err)
 		return
@@ -117,7 +117,7 @@ func (h *PelangganHandler) AddPoin(c *gin.Context) {
 }
 
 func (h *PelangganHandler) GetWithStats(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid customer ID", err)
 		return

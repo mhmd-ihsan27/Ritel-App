@@ -26,25 +26,57 @@ func (r *AnalyticsRepository) GetTopProducts(startDate, endDate string, limit in
 	}
 
 	query := `
-		SELECT
-			ti.produk_id,
-			ti.produk_sku,
-			ti.produk_nama,
-			COALESCE(ti.produk_kategori, 'Uncategorized') as category,
-			SUM(ti.jumlah) as total_qty,
-			SUM(ti.subtotal) as total_revenue,
-			COUNT(DISTINCT ti.transaksi_id) as times_sold,
-			AVG(ti.harga_satuan) as average_price
-		FROM transaksi_item ti
-		JOIN transaksi t ON ti.transaksi_id = t.id
-		WHERE DATE(t.tanggal) BETWEEN DATE(?) AND DATE(?)
-		  AND t.status IN ('selesai', 'partial_return')
-		GROUP BY ti.produk_id, ti.produk_sku, ti.produk_nama, ti.produk_kategori
+		SELECT 
+			t.produk_id,
+			t.produk_sku,
+			t.produk_nama,
+			t.category,
+			SUM(t.total_qty) as total_qty,
+			SUM(t.total_revenue) as total_revenue,
+			SUM(t.times_sold) as times_sold,
+			CASE WHEN SUM(t.total_qty) > 0 THEN SUM(t.total_revenue) / SUM(t.total_qty) ELSE 0 END as average_price
+		FROM (
+			-- Sales
+			SELECT
+				ti.produk_id,
+				ti.produk_sku,
+				ti.produk_nama,
+				COALESCE(ti.produk_kategori, 'Uncategorized') as category,
+				SUM(ti.jumlah) as total_qty,
+				SUM(ti.subtotal) as total_revenue,
+				COUNT(DISTINCT ti.transaksi_id) as times_sold
+			FROM transaksi_item ti
+			JOIN transaksi t ON ti.transaksi_id = t.id
+			WHERE DATE(t.tanggal) BETWEEN DATE(?) AND DATE(?)
+			  AND t.status IN ('selesai')
+			GROUP BY ti.produk_id, ti.produk_sku, ti.produk_nama, ti.produk_kategori
+
+			UNION ALL
+
+			-- Refunds (Negative)
+			SELECT
+				ri.product_id as produk_id,
+				COALESCE(p.sku, '') as produk_sku,
+				COALESCE(p.nama, 'Unknown Product') as produk_nama,
+				COALESCE(p.kategori, 'Uncategorized') as category,
+				-SUM(ri.quantity) as total_qty,
+				-SUM(ri.quantity * ti.harga_satuan) as total_revenue,
+				0 as times_sold
+			FROM returns r
+			JOIN return_items ri ON r.id = ri.return_id
+			JOIN produk p ON ri.product_id = p.id
+			JOIN transaksi t ON r.transaksi_id = t.id
+			JOIN transaksi_item ti ON r.transaksi_id = ti.transaksi_id AND ri.product_id = ti.produk_id
+			WHERE DATE(r.return_date) BETWEEN DATE(?) AND DATE(?)
+			GROUP BY ri.product_id
+		) t
+		GROUP BY t.produk_id
 		ORDER BY total_qty DESC
 		LIMIT ?
 	`
 
-	rows, err := r.db.Query(query, startDate, endDate, limit)
+	// Query args: start, end, start, end, limit
+	rows, err := r.db.Query(query, startDate, endDate, startDate, endDate, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get top products: %w", err)
 	}
@@ -83,20 +115,41 @@ func (r *AnalyticsRepository) GetPaymentMethodBreakdown(startDate, endDate strin
 	}
 
 	query := `
-		SELECT
-			p.metode as method,
-			SUM(p.jumlah) as total_amount,
-			COUNT(*) as count,
-			AVG(p.jumlah) as average_value
-		FROM pembayaran p
-		JOIN transaksi t ON p.transaksi_id = t.id
-		WHERE DATE(t.tanggal) BETWEEN DATE(?) AND DATE(?)
-		  AND t.status IN ('selesai', 'partial_return')
-		GROUP BY p.metode
+		SELECT 
+			t.method,
+			SUM(t.total_amount) as total_amount,
+			SUM(t.count) as count,
+			CASE WHEN SUM(t.count) > 0 THEN SUM(t.total_amount) / SUM(t.count) ELSE 0 END as average_value
+		FROM (
+			-- Payments
+			SELECT
+				p.metode as method,
+				SUM(p.jumlah) as total_amount,
+				COUNT(*) as count,
+				AVG(p.jumlah) as average_value
+			FROM pembayaran p
+			JOIN transaksi t ON p.transaksi_id = t.id
+			WHERE DATE(t.tanggal) BETWEEN DATE(?) AND DATE(?)
+			  AND t.status IN ('selesai', 'partial_return', 'fully_returned')
+			GROUP BY p.metode
+
+			UNION ALL
+
+			-- Refunds (Negative)
+			SELECT
+				COALESCE(r.refund_method, 'Lainnya') as method,
+				-SUM(r.refund_amount) as total_amount,
+				0 as count,
+				0 as average_value
+			FROM returns r
+			WHERE DATE(r.return_date) BETWEEN DATE(?) AND DATE(?)
+			GROUP BY r.refund_method
+		) t
+		GROUP BY t.method
 		ORDER BY total_amount DESC
 	`
 
-	rows, err := r.db.Query(query, startDate, endDate)
+	rows, err := r.db.Query(query, startDate, endDate, startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get payment breakdown: %w", err)
 	}
@@ -141,22 +194,42 @@ func (r *AnalyticsRepository) GetSalesTrend(startDate, endDate string) ([]*model
 	}
 
 	query := `
-		SELECT
-			DATE(t.tanggal) as date,
-			SUM(t.total) as total_sales,
-			COUNT(t.id) as trans_count,
-			AVG(t.total) as average_trans,
-			COALESCE(SUM(
-				(SELECT SUM(jumlah) FROM transaksi_item WHERE transaksi_id = t.id)
-			), 0) as total_items
-		FROM transaksi t
-		WHERE DATE(t.tanggal) BETWEEN DATE(?) AND DATE(?)
-		  AND t.status IN ('selesai', 'partial_return')
-		GROUP BY DATE(t.tanggal)
-		ORDER BY date ASC
+		SELECT 
+			t.date,
+			SUM(t.total_sales) as total_sales,
+			SUM(t.trans_count) as trans_count,
+			CASE WHEN SUM(t.trans_count) > 0 THEN SUM(t.total_sales) / SUM(t.trans_count) ELSE 0 END as average_trans,
+			SUM(t.total_items) as total_items
+		FROM (
+			-- Sales
+			SELECT
+				DATE(tanggal) as date,
+				SUM(total) as total_sales,
+				COUNT(id) as trans_count,
+				COALESCE(SUM((SELECT SUM(jumlah) FROM transaksi_item WHERE transaksi_id = t.id)), 0) as total_items
+			FROM transaksi t
+			WHERE DATE(tanggal) BETWEEN DATE(?) AND DATE(?)
+			  AND status IN ('selesai', 'partial_return', 'fully_returned')
+			GROUP BY DATE(tanggal)
+
+			UNION ALL
+
+			-- Refunds (Negative values)
+			SELECT
+				DATE(return_date) as date,
+				-SUM(refund_amount) as total_sales,
+				0 as trans_count, -- Don't count refund as transaction count for this metric
+				0 as total_items -- Or subtract returned items count if available? Let's say 0 for now or calculate from return_items
+			FROM returns
+			WHERE DATE(return_date) BETWEEN DATE(?) AND DATE(?)
+			GROUP BY DATE(return_date)
+		) t
+		GROUP BY t.date
+		ORDER BY t.date ASC
 	`
 
-	rows, err := r.db.Query(query, startDate, endDate)
+	// Need 4 args now: start, end, start, end
+	rows, err := r.db.Query(query, startDate, endDate, startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sales trend: %w", err)
 	}
@@ -192,20 +265,43 @@ func (r *AnalyticsRepository) GetCategoryBreakdown(startDate, endDate string) ([
 	}
 
 	query := `
-		SELECT
-			COALESCE(ti.produk_kategori, 'Uncategorized') as category,
-			SUM(ti.jumlah) as total_qty,
-			SUM(ti.subtotal) as total_revenue,
-			COUNT(DISTINCT ti.transaksi_id) as trans_count
-		FROM transaksi_item ti
-		JOIN transaksi t ON ti.transaksi_id = t.id
-		WHERE DATE(t.tanggal) BETWEEN DATE(?) AND DATE(?)
-		  AND t.status IN ('selesai', 'partial_return')
-		GROUP BY ti.produk_kategori
+		SELECT 
+			t.category,
+			SUM(t.total_qty) as total_qty,
+			SUM(t.total_revenue) as total_revenue,
+			SUM(t.trans_count) as trans_count
+		FROM (
+			-- Sales
+			SELECT
+				COALESCE(ti.produk_kategori, 'Uncategorized') as category,
+				SUM(ti.jumlah) as total_qty,
+				SUM(ti.subtotal) as total_revenue,
+				COUNT(DISTINCT ti.transaksi_id) as trans_count
+			FROM transaksi_item ti
+			JOIN transaksi t ON ti.transaksi_id = t.id
+			WHERE DATE(t.tanggal) BETWEEN DATE(?) AND DATE(?)
+			  AND t.status IN ('selesai', 'partial_return', 'fully_returned')
+			GROUP BY ti.produk_kategori
+
+			UNION ALL
+
+			-- Refunds (Negative)
+			SELECT
+				COALESCE(ti.produk_kategori, 'Uncategorized') as category,
+				-SUM(ri.quantity) as total_qty,
+				-SUM(ri.quantity * ti.harga_satuan) as total_revenue,
+				0 as trans_count
+			FROM returns r
+			JOIN return_items ri ON r.id = ri.return_id
+			JOIN transaksi_item ti ON r.transaksi_id = ti.transaksi_id AND ri.product_id = ti.produk_id
+			WHERE DATE(r.return_date) BETWEEN DATE(?) AND DATE(?)
+			GROUP BY ti.produk_kategori
+		) t
+		GROUP BY t.category
 		ORDER BY total_revenue DESC
 	`
 
-	rows, err := r.db.Query(query, startDate, endDate)
+	rows, err := r.db.Query(query, startDate, endDate, startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get category breakdown: %w", err)
 	}
@@ -250,19 +346,40 @@ func (r *AnalyticsRepository) GetHourlySales(startDate, endDate string) ([]*mode
 	}
 
 	query := `
-		SELECT
-			CAST(strftime('%H', tanggal) AS INTEGER) as hour,
-			CAST(strftime('%w', tanggal) AS INTEGER) as day_of_week,
-			COUNT(id) as trans_count,
-			SUM(total) as total_sales
-		FROM transaksi
-		WHERE DATE(tanggal) BETWEEN DATE(?) AND DATE(?)
-		  AND status IN ('selesai', 'partial_return')
-		GROUP BY hour, day_of_week
-		ORDER BY hour, day_of_week
+		SELECT 
+			t.hour,
+			t.day_of_week,
+			SUM(t.trans_count) as trans_count,
+			SUM(t.total_sales) as total_sales
+		FROM (
+			-- Sales
+			SELECT
+				CAST(strftime('%H', tanggal) AS INTEGER) as hour,
+				CAST(strftime('%w', tanggal) AS INTEGER) as day_of_week,
+				COUNT(id) as trans_count,
+				SUM(total) as total_sales
+			FROM transaksi
+			WHERE DATE(tanggal) BETWEEN DATE(?) AND DATE(?)
+			  AND status IN ('selesai', 'partial_return', 'fully_returned')
+			GROUP BY hour, day_of_week
+
+			UNION ALL
+
+			-- Refunds (Negative)
+			SELECT
+				CAST(strftime('%H', return_date) AS INTEGER) as hour,
+				CAST(strftime('%w', return_date) AS INTEGER) as day_of_week,
+				0 as trans_count,
+				-SUM(refund_amount) as total_sales
+			FROM returns
+			WHERE DATE(return_date) BETWEEN DATE(?) AND DATE(?)
+			GROUP BY hour, day_of_week
+		) t
+		GROUP BY t.hour, t.day_of_week
+		ORDER BY t.hour, t.day_of_week
 	`
 
-	rows, err := r.db.Query(query, startDate, endDate)
+	rows, err := r.db.Query(query, startDate, endDate, startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get hourly sales: %w", err)
 	}

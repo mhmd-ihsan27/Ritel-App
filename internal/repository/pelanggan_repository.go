@@ -17,6 +17,39 @@ func NewPelangganRepository() *PelangganRepository {
 
 // Create creates a new pelanggan
 func (r *PelangganRepository) Create(pelanggan *models.Pelanggan) error {
+	if database.UseDualMode && database.IsSQLite() {
+		id := database.GenerateOfflineID()
+		query := `
+        INSERT INTO pelanggan (
+            id, nama, telepon, email, alamat, level, tipe, poin, diskon_persen,
+            total_transaksi, total_belanja, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `
+
+		_, err := database.Exec(query,
+			id,
+			pelanggan.Nama,
+			pelanggan.Telepon,
+			pelanggan.Email,
+			pelanggan.Alamat,
+			pelanggan.Level,
+			pelanggan.Tipe,
+			pelanggan.Poin,
+			pelanggan.DiskonPersen,
+			pelanggan.TotalTransaksi,
+			pelanggan.TotalBelanja,
+			pelanggan.CreatedAt,
+			pelanggan.UpdatedAt,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to create pelanggan: %w", err)
+		}
+
+		pelanggan.ID = id
+		return nil
+	}
+
 	query := `
         INSERT INTO pelanggan (
             nama, telepon, email, alamat, level, tipe, poin, diskon_persen,
@@ -44,7 +77,7 @@ func (r *PelangganRepository) Create(pelanggan *models.Pelanggan) error {
 		return fmt.Errorf("failed to create pelanggan: %w", err)
 	}
 
-	pelanggan.ID = int(id)
+	pelanggan.ID = id
 	return nil
 }
 
@@ -112,7 +145,7 @@ func (r *PelangganRepository) GetAll() ([]*models.Pelanggan, error) {
 }
 
 // GetByID retrieves a pelanggan by ID
-func (r *PelangganRepository) GetByID(id int) (*models.Pelanggan, error) {
+func (r *PelangganRepository) GetByID(id int64) (*models.Pelanggan, error) {
 	query := `
 		SELECT
 			id, nama, telepon, email, alamat, level, tipe, poin, diskon_persen,
@@ -264,7 +297,7 @@ func (r *PelangganRepository) Update(pelanggan *models.Pelanggan) error {
 }
 
 // UpdatePoin updates pelanggan points
-func (r *PelangganRepository) UpdatePoin(id int, poin int) error {
+func (r *PelangganRepository) UpdatePoin(id int64, poin int) error {
 	query := `
 		UPDATE pelanggan
 		SET poin = ?
@@ -289,7 +322,7 @@ func (r *PelangganRepository) UpdatePoin(id int, poin int) error {
 }
 
 // AddPoin adds points to pelanggan
-func (r *PelangganRepository) AddPoin(id int, poin int) error {
+func (r *PelangganRepository) AddPoin(id int64, poin int) error {
 	query := `
 		UPDATE pelanggan
 		SET poin = poin + ?
@@ -314,7 +347,7 @@ func (r *PelangganRepository) AddPoin(id int, poin int) error {
 }
 
 // UpdateStats updates pelanggan transaction statistics
-func (r *PelangganRepository) UpdateStats(id int, totalTransaksi int, totalBelanja int) error {
+func (r *PelangganRepository) UpdateStats(id int64, totalTransaksi int, totalBelanja int) error {
 	query := `
 		UPDATE pelanggan
 		SET total_transaksi = ?, total_belanja = ?
@@ -339,7 +372,7 @@ func (r *PelangganRepository) UpdateStats(id int, totalTransaksi int, totalBelan
 }
 
 // IncrementStats increments pelanggan transaction statistics
-func (r *PelangganRepository) IncrementStats(id int, totalBelanja int) error {
+func (r *PelangganRepository) IncrementStats(id int64, totalBelanja int) error {
 	query := `
 		UPDATE pelanggan
 		SET total_transaksi = total_transaksi + 1,
@@ -365,7 +398,7 @@ func (r *PelangganRepository) IncrementStats(id int, totalBelanja int) error {
 }
 
 // Delete soft-deletes a pelanggan (sets deleted_at timestamp)
-func (r *PelangganRepository) Delete(id int) error {
+func (r *PelangganRepository) Delete(id int64) error {
 	query := `
 		UPDATE pelanggan
 		SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
@@ -390,7 +423,7 @@ func (r *PelangganRepository) Delete(id int) error {
 }
 
 // Restore restores a soft-deleted pelanggan
-func (r *PelangganRepository) Restore(id int) error {
+func (r *PelangganRepository) Restore(id int64) error {
 	query := `
 		UPDATE pelanggan
 		SET deleted_at = NULL, updated_at = CURRENT_TIMESTAMP
@@ -533,7 +566,7 @@ func (r *PelangganRepository) GetByTipe(tipe string) ([]*models.Pelanggan, error
 }
 
 // UpdatePointsAndSpending updates customer points and total spending (for returns)
-func (r *PelangganRepository) UpdatePointsAndSpending(pelangganID int, newPoints int, newTotalSpending int) error {
+func (r *PelangganRepository) UpdatePointsAndSpending(pelangganID int64, newPoints int, newTotalSpending int) error {
 	query := `
 		UPDATE pelanggan
 		SET poin = ?, total_belanja = ?, updated_at = CURRENT_TIMESTAMP

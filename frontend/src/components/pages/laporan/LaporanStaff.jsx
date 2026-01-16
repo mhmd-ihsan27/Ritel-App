@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import ShiftSettingModal from '../../modals/ShiftSettingModal';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
     faMoneyBillWave,
@@ -40,7 +41,8 @@ import {
     faCalendarDay,
     faSun,
     faMoon,
-    faList
+    faList,
+    faCog
 } from '@fortawesome/free-solid-svg-icons';
 import { staffReportAPI, userAPI } from '../../../api';
 
@@ -61,9 +63,6 @@ import { Line, Doughnut, Bar } from 'react-chartjs-2';
 
 // Impor CustomSelect dari folder common
 import CustomSelect from '../../common/CustomSelect';
-
-// Impor data dummy dari file terpisah (akan diganti dengan API call)
-// import { data, monthlyReportData } from '../../../data/laporanStaffData';
 
 // Import Wails API
 import { useToast } from '../../common/ToastContainer';
@@ -86,6 +85,7 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
     const { showToast } = useToast();
 
     const [currentTime, setCurrentTime] = useState(new Date());
+    const [showShiftSettings, setShowShiftSettings] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [greeting, setGreeting] = useState('');
     const [activeTab, setActiveTab] = useState('harian');
@@ -97,6 +97,7 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
         end: new Date().toISOString().split('T')[0]
     });
     const [expandedStaff, setExpandedStaff] = useState(null);
+    const [shiftDate, setShiftDate] = useState(new Date().toISOString().split('T')[0]); // Default to today
 
     // Real data from backend
     const [staffReports, setStaffReports] = useState([]);
@@ -137,15 +138,66 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
         }
     });
 
+    // State untuk laporan per shift
+    const [shiftReports, setShiftReports] = useState({
+        shift1: {
+            totalPendapatan: 0,
+            totalProfit: 0,
+            totalTransaksi: 0,
+            totalProdukTerjual: 0,
+            totalRefund: 0,
+            totalDiskon: 0,
+            staffCount: 0,
+            trendPendapatan: 0,
+            trendProfit: 0,
+            trendTransaksi: 0,
+            trendProduk: 0,
+            trendRefund: 0,
+            trendDiskon: 0
+        },
+        shift2: {
+            totalPendapatan: 0,
+            totalProfit: 0,
+            totalTransaksi: 0,
+            totalProdukTerjual: 0,
+            totalRefund: 0,
+            totalDiskon: 0,
+            staffCount: 0,
+            trendPendapatan: 0,
+            trendProfit: 0,
+            trendTransaksi: 0,
+            trendProduk: 0,
+            trendRefund: 0,
+            trendDiskon: 0
+        }
+    });
+
+    // State untuk menyimpan informasi kasir per shift
+    const [shiftCashiers, setShiftCashiers] = useState({
+        shift1: [],
+        shift2: []
+    });
+
+    // State for shift settings
+    const [shiftSettings, setShiftSettings] = useState([]);
+
+    // State untuk modal detail shift
+    const [showShiftDetail, setShowShiftDetail] = useState(false);
+    const [selectedShift, setSelectedShift] = useState(null);
+    const [shiftDetailData, setShiftDetailData] = useState({
+        transactions: [],
+        topProducts: [],
+        hourlyData: [],
+        staffPerformance: []
+    });
+    const [loadingShiftDetail, setLoadingShiftDetail] = useState(false);
+
     // Load data from backend
     const loadStaffReports = async () => {
         setIsLoading(true);
         try {
-            console.log('[LAPORAN STAFF] Loading staff reports with trend data...');
-
             // Get all staff reports WITH TREND for today vs yesterday
             const reportsWithTrend = await staffReportAPI.getAllWithTrend();
-            console.log('[LAPORAN STAFF] Reports with trend:', reportsWithTrend);
 
             // Get all staff list
             const staff = await userAPI.getAll();
@@ -154,17 +206,18 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
             // Transform backend data to match frontend structure
             await transformDataForUI(reportsWithTrend, staff);
 
+            // Load shift reports
+            await loadShiftReports();
+
             // Load comprehensive report for monthly data
             try {
                 const compReport = await staffReportAPI.getComprehensive();
-                console.log('[LAPORAN STAFF] Comprehensive report:', compReport);
 
                 // Save to state
                 setComprehensiveReport(compReport);
 
                 // Get monthly comparison trend for actual percentage
                 const monthlyTrend = await staffReportAPI.getMonthlyTrend();
-                console.log('[LAPORAN STAFF] Monthly trend:', monthlyTrend);
 
                 // Update monthly data with real trends
                 setData(prevData => ({
@@ -199,34 +252,97 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
         }
     };
 
+    // Reload shift reports when date changes
+    useEffect(() => {
+        if (activeTab === 'harian') {
+            loadShiftReports();
+        }
+    }, [shiftDate]);
+
+    // Fungsi untuk memuat data shift
+    const loadShiftReports = async () => {
+        try {
+            // Get shift reports from API with date parameter
+            const shiftData = await staffReportAPI.getShiftReports(shiftDate);
+
+            // Get shift settings for dynamic time display
+            const settings = await staffReportAPI.getShiftSettings();
+            if (settings) {
+                setShiftSettings(settings);
+            }
+
+            // Get cashiers for each shift
+            const shift1Cashiers = await staffReportAPI.getShiftCashiers('shift1');
+            const shift2Cashiers = await staffReportAPI.getShiftCashiers('shift2');
+
+            if (shiftData) {
+                setShiftReports({
+                    shift1: {
+                        totalPendapatan: shiftData.shift1?.totalPenjualan || 0,
+                        totalProfit: shiftData.shift1?.totalProfit || 0,
+                        totalTransaksi: shiftData.shift1?.totalTransaksi || 0,
+                        totalProdukTerjual: shiftData.shift1?.totalItemTerjual || 0,
+                        totalRefund: shiftData.shift1?.totalRefund || 0,
+                        totalDiskon: shiftData.shift1?.totalDiskon || 0,
+                        staffCount: shiftData.shift1?.staffCount || 0,
+                        trendPendapatan: shiftData.shift1?.trendPenjualan || 0,
+                        trendProfit: shiftData.shift1?.trendProfit || 0,
+                        trendTransaksi: shiftData.shift1?.trendTransaksi || 0,
+                        trendProduk: shiftData.shift1?.trendProduk || 0,
+                        trendRefund: shiftData.shift1?.trendRefund || 0,
+                        trendDiskon: shiftData.shift1?.trendDiskon || 0
+                    },
+                    shift2: {
+                        totalPendapatan: shiftData.shift2?.totalPenjualan || 0,
+                        totalProfit: shiftData.shift2?.totalProfit || 0,
+                        totalTransaksi: shiftData.shift2?.totalTransaksi || 0,
+                        totalProdukTerjual: shiftData.shift2?.totalItemTerjual || 0,
+                        totalRefund: shiftData.shift2?.totalRefund || 0,
+                        totalDiskon: shiftData.shift2?.totalDiskon || 0,
+                        staffCount: shiftData.shift2?.staffCount || 0,
+                        trendPendapatan: shiftData.shift2?.trendPenjualan || 0,
+                        trendProfit: shiftData.shift2?.trendProfit || 0,
+                        trendTransaksi: shiftData.shift2?.trendTransaksi || 0,
+                        trendProduk: shiftData.shift2?.trendProduk || 0,
+                        trendRefund: shiftData.shift2?.trendRefund || 0,
+                        trendDiskon: shiftData.shift2?.trendDiskon || 0
+                    }
+                });
+
+                // Set cashiers for each shift
+                setShiftCashiers({
+                    shift1: shift1Cashiers || [],
+                    shift2: shift2Cashiers || []
+                });
+            }
+        } catch (error) {
+            console.error('Error loading shift reports:', error);
+            showToast('error', 'Gagal memuat data laporan shift');
+        }
+    };
+
     // Transform backend data to UI format with real trend data
     const transformDataForUI = async (reportsWithTrend, staff) => {
         // Calculate totals from current and previous period reports
-        console.log('[STAFF REPORTS] Total staff with reports:', reportsWithTrend.length);
-
         const totals = reportsWithTrend.reduce((acc, reportTrend, index) => {
             const currentRefund = reportTrend.current?.totalRefund || 0;
             const currentReturnCount = reportTrend.current?.totalReturnCount || 0;
             const prevRefund = reportTrend.previous?.totalRefund || 0;
             const prevReturnCount = reportTrend.previous?.totalReturnCount || 0;
 
-            // Debug logging for ALL staff (not just those with refunds)
-            console.log(`[STAFF ${index + 1}] ${reportTrend.current?.namaStaff || 'Unknown'}`,
-                `| Current Refund: Rp ${currentRefund.toLocaleString()}`,
-                `| Return Count: ${currentReturnCount}`,
-                `| Prev Refund: Rp ${prevRefund.toLocaleString()}`);
-
             return {
                 totalPendapatan: acc.totalPendapatan + (reportTrend.current?.totalPenjualan || 0),
                 totalProfit: acc.totalProfit + (reportTrend.current?.totalProfit || 0),
                 totalTransaksi: acc.totalTransaksi + (reportTrend.current?.totalTransaksi || 0),
                 totalProdukTerjual: acc.totalProdukTerjual + (reportTrend.current?.totalItemTerjual || 0),
+                totalDiskon: acc.totalDiskon + (reportTrend.current?.totalDiskon || 0),
                 totalRefund: acc.totalRefund + currentRefund,
                 totalReturnCount: acc.totalReturnCount + currentReturnCount,
                 prevPendapatan: acc.prevPendapatan + (reportTrend.previous?.totalPenjualan || 0),
                 prevProfit: acc.prevProfit + (reportTrend.previous?.totalProfit || 0),
                 prevTransaksi: acc.prevTransaksi + (reportTrend.previous?.totalTransaksi || 0),
                 prevProdukTerjual: acc.prevProdukTerjual + (reportTrend.previous?.totalItemTerjual || 0),
+                prevDiskon: acc.prevDiskon + (reportTrend.previous?.totalDiskon || 0),
                 prevRefund: acc.prevRefund + prevRefund,
                 prevReturnCount: acc.prevReturnCount + prevReturnCount
             };
@@ -235,22 +351,19 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
             totalProfit: 0,
             totalTransaksi: 0,
             totalProdukTerjual: 0,
+            totalDiskon: 0,
             totalRefund: 0,
             totalReturnCount: 0,
             prevPendapatan: 0,
             prevProfit: 0,
             prevTransaksi: 0,
             prevProdukTerjual: 0,
+            prevDiskon: 0,
             prevRefund: 0,
             prevReturnCount: 0
         });
 
-        console.log('========================================');
-        console.log('[AGGREGATE TOTALS]');
-        console.log('Total Refund (All Staff):', 'Rp', totals.totalRefund.toLocaleString());
-        console.log('Total Return Count:', totals.totalReturnCount);
-        console.log('Previous Refund:', 'Rp', totals.prevRefund.toLocaleString());
-        console.log('========================================');
+
 
         // Calculate trend percentages
         const calculateTrend = (current, previous) => {
@@ -266,6 +379,9 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
         const rataRataTransaksi = totals.totalTransaksi > 0 ? totals.totalPendapatan / totals.totalTransaksi : 0;
         const prevRataRataTransaksi = totals.prevTransaksi > 0 ? totals.prevPendapatan / totals.prevTransaksi : 0;
         const trendRataRata = calculateTrend(rataRataTransaksi, prevRataRataTransaksi);
+
+        // Calculate trend for discount
+        const trendDiskon = calculateTrend(totals.totalDiskon, totals.prevDiskon);
 
         // Create staff list with report and trend data
         const staffList = staff.map(s => {
@@ -314,16 +430,18 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
             bulan: { labels: [], data: [] }
         };
 
+        // Declare allHistoricalData outside try block so it can be used later
+        let allHistoricalData = [];
+
         try {
             // Get historical data for all staff and aggregate
-            const allHistoricalData = await Promise.all(
+            allHistoricalData = await Promise.all(
                 staff.slice(0, 5).map(s => staffReportAPI.getHistoricalData(s.id).catch(err => {
-                    console.error(`[CHART DATA] Error loading historical data for staff ${s.id}:`, err);
                     return null;
                 }))
             );
 
-            console.log('[CHART DATA] All historical data loaded:', allHistoricalData.filter(d => d !== null).length, 'of', staff.slice(0, 5).length);
+
 
             // Aggregate daily data (last 7 days) - properly aligned with current day
             const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
@@ -349,8 +467,7 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
                 }
             });
 
-            console.log('[CHART DATA] Daily labels:', dailyLabels);
-            console.log('[CHART DATA] Daily data:', dailyData);
+
 
             // Aggregate weekly data (last 4 weeks)
             const weeklyLabels = ['Minggu 1', 'Minggu 2', 'Minggu 3', 'Minggu 4'];
@@ -400,7 +517,7 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
         let shiftData = { labels: ['Pagi (06:00-14:00)', 'Sore (14:00-22:00)', 'Malam (22:00-06:00)'], data: [0, 0, 0] };
         try {
             const shiftProductivity = await staffReportAPI.getShiftProductivity();
-            console.log('[SHIFT PRODUCTIVITY] Data received:', shiftProductivity);
+
             if (shiftProductivity) {
                 shiftData = {
                     labels: ['Pagi (06:00-14:00)', 'Sore (14:00-22:00)', 'Malam (22:00-06:00)'],
@@ -424,51 +541,35 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
 
         try {
             // Aggregate transaction counts from all staff historical data
-            console.log('[TRANSACTION CHART] Processing historical data, count:', allHistoricalData.length);
             allHistoricalData.forEach((histData, staffIdx) => {
-                console.log(`[TRANSACTION CHART] Processing staff ${staffIdx}:`, histData);
-
                 if (histData?.daily) {
-                    console.log(`[TRANSACTION CHART] Staff ${staffIdx} daily data:`, histData.daily);
                     histData.daily.forEach((day, idx) => {
                         if (idx < 7) {
                             const txCount = day.totalTransaksi || 0;
                             transactionChartData.hari.data[idx] += txCount;
-                            console.log(`[TRANSACTION CHART] Day ${idx}: adding ${txCount}, new total: ${transactionChartData.hari.data[idx]}`);
                         }
                     });
                 }
                 if (histData?.weekly) {
-                    console.log(`[TRANSACTION CHART] Staff ${staffIdx} weekly data:`, histData.weekly);
                     histData.weekly.forEach((week, idx) => {
                         if (idx < 4) {
                             const txCount = week.totalTransaksi || 0;
                             transactionChartData.minggu.data[idx] += txCount;
-                            console.log(`[TRANSACTION CHART] Week ${idx}: adding ${txCount}, new total: ${transactionChartData.minggu.data[idx]}`);
                         }
                     });
                 }
                 if (histData?.monthly) {
-                    console.log(`[TRANSACTION CHART] Staff ${staffIdx} monthly data:`, histData.monthly);
                     histData.monthly.forEach((month, idx) => {
                         if (idx < 6) {
                             const txCount = month.totalTransaksi || 0;
                             transactionChartData.bulan.data[idx] += txCount;
-                            console.log(`[TRANSACTION CHART] Month ${idx}: adding ${txCount}, new total: ${transactionChartData.bulan.data[idx]}`);
                         }
                     });
                 }
             });
-
-            console.log('[TRANSACTION CHART] Daily data:', transactionChartData.hari.data);
-            console.log('[TRANSACTION CHART] Weekly data:', transactionChartData.minggu.data);
-            console.log('[TRANSACTION CHART] Monthly data:', transactionChartData.bulan.data);
-            console.log('[TRANSACTION CHART] Full transactionChartData:', JSON.stringify(transactionChartData, null, 2));
         } catch (error) {
             console.error('Error calculating transaction chart data:', error);
         }
-
-        console.log('[DATA TRANSFORM] Final grafikTransaksi to be set:', JSON.stringify(transactionChartData, null, 2));
 
         // Calculate profit trend
         const trendProfit = calculateTrend(totals.totalProfit, totals.prevProfit);
@@ -482,13 +583,15 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
                 totalProdukTerjual: totals.totalProdukTerjual,
                 totalRefund: totals.totalRefund,  // Real refund data (based on harga_beli)
                 totalReturnCount: totals.totalReturnCount,  // Number of return transactions
-                rataRataTransaksi: rataRataTransaksi,
+                rataRataTransaksi: rataRataTransaksi, // Keep for backward compatibility if needed, but not displayed
+                totalDiskon: totals.totalDiskon, // Add total discount
                 trendPendapatan: parseFloat(trendPendapatan),
                 trendProfit: parseFloat(trendProfit),
                 trendTransaksi: parseFloat(trendTransaksi),
                 trendProduk: parseFloat(trendProduk),
                 trendRefund: parseFloat(trendRefund),  // Trend for refund
-                trendRataRata: parseFloat(trendRataRata)
+                trendRataRata: parseFloat(trendRataRata),
+                trendDiskon: parseFloat(trendDiskon)
             },
             staffList: staffList,
             grafikPendapatan: chartData,
@@ -509,14 +612,58 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
         });
     };
 
+    // Track the last loaded date to detect date changes
+    const [lastLoadedDate, setLastLoadedDate] = useState(new Date().toDateString());
+
     // Load data on component mount
     useEffect(() => {
+        const today = new Date().toDateString();
+
+
+        if (lastLoadedDate !== today) {
+
+            setLastLoadedDate(today);
+        }
+
         loadStaffReports();
+    }, []);
+
+    // Check date change every minute and refresh if needed
+    useEffect(() => {
+        const checkDateChange = () => {
+            const today = new Date().toDateString();
+            if (lastLoadedDate !== today) {
+
+                setLastLoadedDate(today);
+                loadStaffReports();
+            }
+        };
+
+        // Check every minute for date change
+        const intervalId = setInterval(checkDateChange, 60 * 1000); // 1 minute
+
+        return () => clearInterval(intervalId);
+    }, [lastLoadedDate]);
+
+    // Also refresh every 5 minutes during business hours to catch new transactions
+    useEffect(() => {
+        const intervalId = setInterval(() => {
+            const hour = new Date().getHours();
+            // Only auto-refresh during business hours (6 AM to 11 PM)
+            if (hour >= 6 && hour <= 23) {
+
+                loadStaffReports();
+            }
+        }, 5 * 60 * 1000); // 5 minutes
+
+        return () => clearInterval(intervalId);
     }, []);
 
     // Manual refresh function
     const handleRefresh = () => {
-        console.log('[LAPORAN STAFF] Manual refresh triggered');
+
+        const today = new Date().toDateString();
+        setLastLoadedDate(today);
         loadStaffReports();
     };
 
@@ -551,17 +698,24 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
 
         try {
             // Load monthly data for selected staff - last 31 days
-            const endDate = new Date().toISOString().split('T')[0];
-            const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            const formatDateLocal = (date) => {
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+            };
 
-            console.log('[STAFF DETAIL] Loading detail for staff:', staff.id, 'from', startDate, 'to', endDate);
+            const now = new Date();
+            const endDate = formatDateLocal(now);
+
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(now.getDate() - 30);
+            const startDate = formatDateLocal(thirtyDaysAgo);
 
             const detailReport = await staffReportAPI.getReportDetail(staff.id, startDate, endDate);
-            console.log('[STAFF DETAIL] Detail report received:', detailReport);
 
             // Get historical data untuk daily breakdown
             const historicalData = await staffReportAPI.getHistoricalData(staff.id);
-            console.log('[STAFF DETAIL] Historical data:', historicalData);
 
             // Create daily data array from transactions
             const dailyMap = {};
@@ -569,10 +723,11 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
             // Initialize all 31 days with 0
             for (let i = 0; i < 31; i++) {
                 const date = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
-                const dateStr = date.toISOString().split('T')[0];
+                const dateStr = formatDateLocal(date); // Use local date
                 dailyMap[dateStr] = {
                     tanggal: dateStr,
                     totalBelanja: 0,
+                    totalProfit: 0,
                     totalTransaksi: 0,
                     produkTerjual: 0
                 };
@@ -581,9 +736,13 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
             // Populate with real data from transactions
             if (detailReport?.transaksi) {
                 detailReport.transaksi.forEach(t => {
-                    const dateStr = new Date(t.tanggal).toISOString().split('T')[0];
+                    // Normalize transaction date to local date string for matching
+                    const tDate = new Date(t.tanggal);
+                    const dateStr = formatDateLocal(tDate);
+
                     if (dailyMap[dateStr]) {
                         dailyMap[dateStr].totalBelanja += t.total || 0;
+                        dailyMap[dateStr].totalProfit += t.profit || 0;
                         dailyMap[dateStr].totalTransaksi += 1;
                     }
                 });
@@ -592,6 +751,10 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
             // Populate item counts from itemCountsByDate
             if (detailReport?.itemCountsByDate) {
                 Object.entries(detailReport.itemCountsByDate).forEach(([dateStr, itemCount]) => {
+                    // dateStr from map key might verify format, but usually matching local date
+                    // Assuming dateStr from backend is YYYY-MM-DD.
+                    // If backend returns date string, it might be OK.
+                    // But to be safe, let's trust the key matches our local format YYYY-MM-DD
                     if (dailyMap[dateStr]) {
                         dailyMap[dateStr].produkTerjual = itemCount;
                     }
@@ -615,15 +778,51 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
         }
     };
 
+    // Fungsi untuk menangani klik detail shift
+    const handleShiftDetailClick = async (staff, shiftId) => {
+        if (staff) {
+            // Jika staff dipilih, tampilkan detail staff
+            handleStaffClick(staff);
+        } else {
+            // Jika null, tampilkan detail gabungan shift
+            setSelectedShift(shiftId);
+            setShowShiftDetail(true);
+            setLoadingShiftDetail(true);
+
+            try {
+                // Use selected shiftDate
+                const todayStr = shiftDate;
+
+                // Get shift details from API
+                const shiftDetail = await staffReportAPI.getShiftDetail(shiftId, todayStr);
+
+
+                // Set shift detail data
+                setShiftDetailData({
+                    transactions: shiftDetail.transactions || [],
+                    topProducts: shiftDetail.topProducts || [],
+                    hourlyData: shiftDetail.hourlyData || [],
+                    staffPerformance: shiftDetail.staffPerformance || []
+                });
+            } catch (error) {
+                console.error('Error loading shift detail:', error);
+                showToast('error', 'Gagal memuat detail shift');
+            } finally {
+                setLoadingShiftDetail(false);
+            }
+        }
+    };
+
     // Effect untuk mencegah scroll body saat modal terbuka
     useEffect(() => {
         const html = document.documentElement;
         const body = document.body;
 
-        if (showStaffDetail) {
+        if (showStaffDetail || showShiftDetail) {
             // Simpan posisi scroll saat ini
             const scrollY = window.scrollY;
             const scrollX = window.scrollX;
+            sessionStorage.setItem('scrollYBeforeModal', scrollY.toString());
 
             // Set overflow ke hidden dan position fixed pada body
             html.style.overflow = 'hidden';
@@ -650,7 +849,7 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
                 }
             };
         }
-    }, [showStaffDetail]);
+    }, [showStaffDetail, showShiftDetail]);
 
     const toggleExpandStaff = (staffId, e) => {
         if (e) {
@@ -663,24 +862,20 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
     const handleExport = (format, e) => {
         if (e) e.preventDefault();
         // Implementasi export data
-        console.log(`Export data in ${format} format`);
+
     };
 
     const handlePrint = (e) => {
         if (e) e.preventDefault();
         // Implementasi print
-        console.log('Print report');
+
     };
 
     // Close modal and restore scroll
     const handleCloseModal = () => {
         setShowStaffDetail(false);
-        // Restore scroll position
-        const savedScrollY = sessionStorage.getItem('scrollYBeforeModal');
-        if (savedScrollY) {
-            window.scrollTo(0, parseInt(savedScrollY));
-            sessionStorage.removeItem('scrollYBeforeModal');
-        }
+        setShowShiftDetail(false);
+        // Clean up is handled by useEffect
     };
 
     // Helper function untuk menghitung trend data
@@ -809,8 +1004,6 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
                     </div>
                 </div>
 
-                {/* Time Info - REMOVED Sign In/Sign Out icons and times */}
-                
                 {/* Action Buttons - REMOVED Expand Dropdown */}
                 <div className="flex justify-end pt-4 border-t border-gray-200">
                     <button
@@ -825,7 +1018,7 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
     };
 
     // Komponen Container dengan Header Gradient
-    const SectionContainer = ({ title, children, className = "" }) => (
+    const SectionContainer = ({ title, children, className = "", rightContent = null }) => (
         <div className={`bg-white rounded-2xl shadow-md border border-gray-200 overflow-hidden mb-8 ${className}`}>
             {/* Header dengan Gradient */}
             <div className="bg-green-700 px-6 py-4">
@@ -834,15 +1027,137 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
                         <FontAwesomeIcon icon={faUsers} className="text-white text-lg" />
                         <h3 className="text-lg font-semibold text-white">{title}</h3>
                     </div>
-                    <div className="text-green-100 text-xs bg-green-600 px-3 py-1 rounded-full font-medium border border-green-400">
-                        Total: {data.staffList.length} Staff
-                    </div>
+                    {rightContent ? rightContent : (
+                        <div className="text-green-100 text-xs bg-green-600 px-3 py-1 rounded-full font-medium border border-green-400">
+                            Total: {data.staffList.length} Staff
+                        </div>
+                    )}
                 </div>
             </div>
 
             {/* Content */}
             <div className="p-6">
                 {children}
+            </div>
+        </div>
+    );
+
+    // Komponen ShiftCard untuk laporan per shift
+    const ShiftCard = ({ shift, shiftName, timeRange, icon, color = 'green', cashiers, onDetailClick, shiftId }) => (
+        <div className="bg-white rounded-2xl shadow-md border border-gray-200 p-6 hover:shadow-lg transition-all duration-300">
+            <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center space-x-3">
+                    <div className={`w-12 h-12 bg-${color}-100 rounded-xl flex items-center justify-center shadow-sm border border-${color}-200`}>
+                        <FontAwesomeIcon icon={icon} className={`text-xl text-${color}-700`} />
+                    </div>
+                    <div>
+                        <h3 className="text-lg font-semibold text-gray-800">{shiftName}</h3>
+                        <p className="text-sm text-gray-600">{timeRange}</p>
+                    </div>
+                </div>
+                <div className="text-gray-500 text-sm bg-gray-100 px-3 py-1 rounded-full font-medium">
+                    {shift.staffCount} Staff
+                </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 mb-4">
+                <div className="text-center">
+                    <p className="text-xs text-gray-500">Pendapatan</p>
+                    <p className="text-lg font-semibold text-gray-800">{formatRupiah(shift.totalPendapatan)}</p>
+                    <div className="flex items-center justify-center mt-1">
+                        <FontAwesomeIcon
+                            icon={shift.trendPendapatan > 0 ? faArrowUp : faArrowDown}
+                            className={`text-xs mr-1 ${shift.trendPendapatan > 0 ? 'text-green-600' : 'text-red-600'}`}
+                        />
+                        <span className={`text-xs ${shift.trendPendapatan > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {Math.round(Math.abs(shift.trendPendapatan))}%
+                        </span>
+                    </div>
+                </div>
+                <div className="text-center">
+                    <p className="text-xs text-gray-500">Transaksi</p>
+                    <p className="text-lg font-semibold text-gray-800">{shift.totalTransaksi}</p>
+                    <div className="flex items-center justify-center mt-1">
+                        <FontAwesomeIcon
+                            icon={shift.trendTransaksi > 0 ? faArrowUp : faArrowDown}
+                            className={`text-xs mr-1 ${shift.trendTransaksi > 0 ? 'text-green-600' : 'text-red-600'}`}
+                        />
+                        <span className={`text-xs ${shift.trendTransaksi > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {Math.round(Math.abs(shift.trendTransaksi))}%
+                        </span>
+                    </div>
+                </div>
+                <div className="text-center">
+                    <p className="text-xs text-gray-500">Produk Terjual</p>
+                    <p className="text-lg font-semibold text-gray-800">{shift.totalProdukTerjual}</p>
+                    <div className="flex items-center justify-center mt-1">
+                        <FontAwesomeIcon
+                            icon={shift.trendProduk > 0 ? faArrowUp : faArrowDown}
+                            className={`text-xs mr-1 ${shift.trendProduk > 0 ? 'text-green-600' : 'text-red-600'}`}
+                        />
+                        <span className={`text-xs ${shift.trendProduk > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {Math.round(Math.abs(shift.trendProduk))}%
+                        </span>
+                    </div>
+                </div>
+                <div className="text-center">
+                    <p className="text-xs text-gray-500">Profit</p>
+                    <p className="text-lg font-semibold text-gray-800">{formatRupiah(shift.totalProfit)}</p>
+                    <div className="flex items-center justify-center mt-1">
+                        <FontAwesomeIcon
+                            icon={shift.trendProfit > 0 ? faArrowUp : faArrowDown}
+                            className={`text-xs mr-1 ${shift.trendProfit > 0 ? 'text-green-600' : 'text-red-600'}`}
+                        />
+                        <span className={`text-xs ${shift.trendProfit > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {Math.round(Math.abs(shift.trendProfit))}%
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-gray-200">
+                <div className="mb-3">
+                    <p className="text-xs text-gray-500 mb-2">Kasir Shift Ini:</p>
+                    <div className="flex flex-wrap gap-2">
+                        {cashiers && cashiers.length > 0 ? (
+                            cashiers.map(cashier => (
+                                <div
+                                    key={cashier.id}
+                                    className="bg-gray-100 rounded-lg px-3 py-1 flex items-center cursor-pointer hover:bg-gray-200 transition-colors"
+                                    onClick={() => onDetailClick(cashier)}
+                                >
+                                    <FontAwesomeIcon icon={faUser} className="h-3 w-3 mr-1 text-gray-600" />
+                                    <span className="text-sm text-gray-700">{cashier.nama}</span>
+                                </div>
+                            ))
+                        ) : (
+                            <span className="text-sm text-gray-500">Tidak ada kasir untuk shift ini</span>
+                        )}
+                    </div>
+                </div>
+
+                <div className="flex justify-between items-center">
+                    <div className="flex gap-4">
+
+                        <div className="text-center">
+                            <p className="text-xs text-gray-500">Diskon</p>
+                            <p className="text-sm font-medium text-orange-600">{formatRupiah(shift.totalDiskon)}</p>
+                        </div>
+                        <div className="text-center">
+                            <p className="text-xs text-gray-500">Rata-rata/Transaksi</p>
+                            <p className="text-sm font-medium text-gray-800">
+                                {shift.totalTransaksi > 0 ? formatRupiah(shift.totalPendapatan / shift.totalTransaksi) : formatRupiah(0)}
+                            </p>
+                        </div>
+                    </div>
+
+                    <button
+                        onClick={() => onDetailClick(null, shiftId)} // null untuk menampilkan laporan gabungan shift
+                        className="text-sm font-medium text-green-700 hover:text-green-900 hover:underline"
+                    >
+                        Lihat Detail Shift
+                    </button>
+                </div>
             </div>
         </div>
     );
@@ -885,8 +1200,12 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
             'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
         ];
 
-        // Generate tahun options (3 tahun terakhir)
-        const yearOptions = [2022, 2023, 2024];
+        // Generate tahun options (3 tahun sebelumnya dan 3 tahun ke depan)
+        const currentYear = new Date().getFullYear();
+        const yearOptions = [];
+        for (let year = currentYear - 3; year <= currentYear + 3; year++) {
+            yearOptions.push(year);
+        }
 
         return (
             <div className="fixed inset-0 bg-gray-200/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -1015,7 +1334,7 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
                                                     <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
                                                         {formatRupiah(day.totalBelanja)}
                                                     </td>
-                                                    <td className="px-4 py-3 whitespace-nowrap text-sm font-semibold text-green-600">
+                                                    <td className={`px-4 py-3 whitespace-nowrap text-sm font-semibold ${(day.totalProfit || 0) < 0 ? 'text-red-600' : 'text-green-600'}`}>
                                                         {formatRupiah(day.totalProfit || 0)}
                                                     </td>
                                                     <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{day.totalTransaksi}</td>
@@ -1119,6 +1438,317 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
         );
     };
 
+    // Komponen Modal Detail Shift
+    const ShiftDetailModal = () => {
+        if (!showShiftDetail || !selectedShift) return null;
+
+        // Get shift info
+        const shiftInfo = selectedShift === 'shift1'
+            ? {
+                name: 'Shift 1',
+                timeRange: shiftSettings.find(s => s.name === "Shift 1") ? `${shiftSettings.find(s => s.name === "Shift 1").startTime} - ${shiftSettings.find(s => s.name === "Shift 1").endTime}` : '06:00 - 14:00',
+                icon: faSun,
+                color: 'yellow'
+            }
+            : {
+                name: 'Shift 2',
+                timeRange: shiftSettings.find(s => s.name === "Shift 2") ? `${shiftSettings.find(s => s.name === "Shift 2").startTime} - ${shiftSettings.find(s => s.name === "Shift 2").endTime}` : '14:00 - 22:00',
+                icon: faMoon,
+                color: 'blue'
+            };
+
+        const shiftData = selectedShift === 'shift1' ? shiftReports.shift1 : shiftReports.shift2;
+
+        // Format tanggal hari ini
+        const today = new Date();
+        const formatDateLocal = (date) => {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+
+        const todayStr = formatDateLocal(today);
+        const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+        const dayName = dayNames[today.getDay()];
+
+        // Prepare data for hourly chart
+        const hourlyChartData = {
+            labels: shiftDetailData.hourlyData.map(item => `${item.hour}:00`),
+            datasets: [
+                {
+                    label: 'Pendapatan',
+                    data: shiftDetailData.hourlyData.map(item => item.revenue),
+                    borderColor: '#16a34a',
+                    backgroundColor: 'rgba(22, 163, 74, 0.1)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 3,
+                    pointHoverRadius: 5,
+                    pointBackgroundColor: '#16a34a'
+                },
+                {
+                    label: 'Transaksi',
+                    data: shiftDetailData.hourlyData.map(item => item.transactions),
+                    borderColor: '#2563eb',
+                    backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 3,
+                    pointHoverRadius: 5,
+                    pointBackgroundColor: '#2563eb',
+                    yAxisID: 'y1'
+                }
+            ]
+        };
+
+        // Chart options
+        const hourlyChartOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function (context) {
+                            let label = context.dataset.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            if (context.parsed.y !== null) {
+                                if (context.datasetIndex === 0) {
+                                    label += formatRupiah(context.parsed.y);
+                                } else {
+                                    label += context.parsed.y;
+                                }
+                            }
+                            return label;
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
+                    ticks: {
+                        callback: function (value) {
+                            if (value >= 1000000) {
+                                return 'Rp ' + (value / 1000000).toFixed(1) + 'jt';
+                            }
+                            return 'Rp ' + (value / 1000).toFixed(0) + 'rb';
+                        }
+                    }
+                },
+                y1: {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    grid: {
+                        drawOnChartArea: false,
+                    },
+                }
+            }
+        };
+
+        return (
+            <div className="fixed inset-0 bg-gray-200/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                <div className="bg-white rounded-2xl shadow-xl max-w-6xl w-full max-h-[90vh] overflow-y-auto">
+                    <div className="sticky top-0 bg-white border-b border-gray-200 p-6 flex justify-between items-center">
+                        <h2 className="text-xl font-bold text-gray-800">Detail Laporan {shiftInfo.name} - {dayName}, {todayStr}</h2>
+                        <button
+                            onClick={handleCloseModal}
+                            className="text-gray-500 hover:text-gray-700 p-1 rounded-full hover:bg-gray-100 transition-colors"
+                        >
+                            <FontAwesomeIcon icon={faTimes} className="h-5 w-5" />
+                        </button>
+                    </div>
+
+                    <div className="p-6">
+                        {loadingShiftDetail ? (
+                            <div className="flex justify-center items-center py-12">
+                                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-700"></div>
+                            </div>
+                        ) : (
+                            <>
+                                {/* Ringkasan Shift */}
+                                <div className="mb-6">
+                                    <div className="flex items-center mb-4">
+                                        <div className={`w-12 h-12 bg-${shiftInfo.color}-100 rounded-xl flex items-center justify-center mr-4`}>
+                                            <FontAwesomeIcon icon={shiftInfo.icon} className={`text-xl text-${shiftInfo.color}-700`} />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-lg font-semibold text-gray-800">{shiftInfo.name} - {shiftInfo.timeRange}</h3>
+                                            <p className="text-sm text-gray-600">{dayName}, {todayStr}</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                        <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                                            <p className="text-xs text-gray-500 mb-1">Total Pendapatan</p>
+                                            <p className="text-xl font-bold text-gray-800">{formatRupiah(shiftData.totalPendapatan)}</p>
+                                            <div className="flex items-center mt-1">
+                                                <FontAwesomeIcon
+                                                    icon={shiftData.trendPendapatan > 0 ? faArrowUp : faArrowDown}
+                                                    className={`text-xs mr-1 ${shiftData.trendPendapatan > 0 ? 'text-green-600' : 'text-red-600'}`}
+                                                />
+                                                <span className={`text-xs ${shiftData.trendPendapatan > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                    {Math.round(Math.abs(shiftData.trendPendapatan))}% dari hari sebelumnya
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                                            <p className="text-xs text-gray-500 mb-1">Total Transaksi</p>
+                                            <p className="text-xl font-bold text-gray-800">{shiftData.totalTransaksi}</p>
+                                            <div className="flex items-center mt-1">
+                                                <FontAwesomeIcon
+                                                    icon={shiftData.trendTransaksi > 0 ? faArrowUp : faArrowDown}
+                                                    className={`text-xs mr-1 ${shiftData.trendTransaksi > 0 ? 'text-green-600' : 'text-red-600'}`}
+                                                />
+                                                <span className={`text-xs ${shiftData.trendTransaksi > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                    {Math.round(Math.abs(shiftData.trendTransaksi))}% dari hari sebelumnya
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                                            <p className="text-xs text-gray-500 mb-1">Produk Terjual</p>
+                                            <p className="text-xl font-bold text-gray-800">{shiftData.totalProdukTerjual}</p>
+                                            <div className="flex items-center mt-1">
+                                                <FontAwesomeIcon
+                                                    icon={shiftData.trendProduk > 0 ? faArrowUp : faArrowDown}
+                                                    className={`text-xs mr-1 ${shiftData.trendProduk > 0 ? 'text-green-600' : 'text-red-600'}`}
+                                                />
+                                                <span className={`text-xs ${shiftData.trendProduk > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                    {Math.round(Math.abs(shiftData.trendProduk))}% dari hari sebelumnya
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                    </div>
+                                </div>
+
+                                {/* Grafik Pendapatan Per Jam */}
+                                <div className="mb-6">
+                                    <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                                        <FontAwesomeIcon icon={faChartLine} className="h-5 w-5 mr-2 text-green-700" />
+                                        Grafik Pendapatan & Transaksi Per Jam
+                                    </h3>
+                                    <div className="bg-white p-4 rounded-lg border border-gray-200">
+                                        <div className="h-64">
+                                            <Line data={hourlyChartData} options={hourlyChartOptions} />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Performa Staff */}
+                                <div className="mb-6">
+                                    <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                                        <FontAwesomeIcon icon={faUsers} className="h-5 w-5 mr-2 text-green-700" />
+                                        Performa Staff Shift Ini
+                                    </h3>
+                                    <div className="overflow-x-auto">
+                                        <table className="min-w-full bg-white rounded-lg overflow-hidden border border-gray-200">
+                                            <thead className="bg-gray-100">
+                                                <tr>
+                                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Nama Staff</th>
+                                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Total Transaksi</th>
+                                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Total Pendapatan</th>
+                                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Produk Terjual</th>
+                                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Rata-rata/Transaksi</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-200">
+                                                {shiftDetailData.staffPerformance.map((staff, index) => (
+                                                    <tr key={index} className="hover:bg-gray-50">
+                                                        <td className="px-4 py-3 whitespace-nowrap">
+                                                            <div className="flex items-center">
+                                                                <div className="w-8 h-8 bg-green-100 rounded-xl flex items-center justify-center mr-3 border border-green-200">
+                                                                    <FontAwesomeIcon icon={faUser} className="h-4 w-4 text-green-700" />
+                                                                </div>
+                                                                <span className="font-medium text-gray-900">{staff.name}</span>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
+                                                            {staff.transactions}
+                                                        </td>
+                                                        <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
+                                                            {formatRupiah(staff.revenue)}
+                                                        </td>
+                                                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
+                                                            {staff.productsSold}
+                                                        </td>
+                                                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
+                                                            {formatRupiah(staff.averageTransaction)}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                {/* Transaksi Terakhir */}
+                                <div className="mb-6">
+                                    <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                                        <FontAwesomeIcon icon={faReceipt} className="h-5 w-5 mr-2 text-green-700" />
+                                        Transaksi Terakhir Shift Ini
+                                    </h3>
+                                    <div className="overflow-x-auto">
+                                        <table className="min-w-full bg-white rounded-lg overflow-hidden border border-gray-200">
+                                            <thead className="bg-gray-100">
+                                                <tr>
+                                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">ID Transaksi</th>
+                                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Waktu</th>
+                                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Produk</th>
+                                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Kasir</th>
+                                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Total</th>
+                                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Jumlah Item</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-200">
+                                                {shiftDetailData.transactions.map((transaction, index) => (
+                                                    <tr key={index} className="hover:bg-gray-50">
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
+                                                            {transaction.nomorTransaksi || `TRX-${transaction.id}`}
+                                                        </td>
+                                                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
+                                                            {new Date(transaction.time).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-sm text-gray-600 max-w-xs truncate" title={transaction.products}>
+                                                            {transaction.products || '-'}
+                                                        </td>
+                                                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
+                                                            {transaction.cashier}
+                                                        </td>
+                                                        <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
+                                                            {formatRupiah(transaction.total)}
+                                                        </td>
+                                                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
+                                                            {transaction.itemCount}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     if (isLoading) {
         return (
             <div className="min-h-screen bg-gray-50 p-6 md:p-8 overflow-x-hidden">
@@ -1143,6 +1773,15 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
 
     return (
         <div className="min-h-screen bg-gray-50 p-6 md:p-8 overflow-x-hidden">
+            <ShiftSettingModal
+                isOpen={showShiftSettings}
+                onClose={() => setShowShiftSettings(false)}
+                onSave={() => {
+                    loadShiftReports();
+                    loadStaffReports();
+                }}
+            />
+
             <div className="max-w-full mx-auto space-y-8">
                 {/* Header Laporan Staff */}
                 <div className="mb-8">
@@ -1156,17 +1795,15 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
                                 <p className="text-gray-600 mt-1">Laporan Staff - Monitor performa seluruh staff</p>
                             </div>
                         </div>
-                        <div className="text-right flex flex-col items-end gap-2">
-                            <div>
-                                <p className="text-sm text-gray-600">
-                                    {currentTime.toLocaleDateString('id-ID', {
-                                        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-                                    })}
-                                </p>
-                                <p className="text-lg font-semibold text-gray-800">
-                                    {currentTime.toLocaleTimeString('id-ID')}
-                                </p>
-                            </div>
+                        <div className="text-right flex space-x-2">
+                            <button
+                                onClick={() => setShowShiftSettings(true)}
+                                className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg shadow-sm transition-colors"
+                                title="Pengaturan Shift"
+                            >
+                                <FontAwesomeIcon icon={faCog} />
+                                <span className="text-sm font-medium hidden md:inline">Atur Shift</span>
+                            </button>
                             <button
                                 onClick={handleRefresh}
                                 disabled={isLoading}
@@ -1229,6 +1866,54 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
                 {/* Konten Tab Harian */}
                 {activeTab === 'harian' && (
                     <div className="space-y-6">
+                        {/* Header Controls for Shift Report History */}
+                        {/* Laporan Per Shift */}
+                        <SectionContainer
+                            title="Laporan Per Shift"
+                            rightContent={
+                                <div className="flex items-center space-x-3">
+                                    <div className="relative">
+                                        <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                                            <FontAwesomeIcon icon={faCalendarAlt} className="text-green-600" />
+                                        </div>
+                                        <input
+                                            type="date"
+                                            value={shiftDate}
+                                            onChange={(e) => setShiftDate(e.target.value)}
+                                            className="pl-9 pr-3 py-1.5 bg-white border border-transparent rounded-lg text-sm text-gray-800 focus:ring-2 focus:ring-green-400 focus:border-green-400 block w-auto shadow-sm"
+                                        />
+                                    </div>
+                                    <span className="text-xs font-medium text-green-100 hidden sm:inline-block min-w-[80px]">
+                                        {shiftDate === new Date().toISOString().split('T')[0] ? "(Hari Ini)" :
+                                            shiftDate === new Date(Date.now() - 86400000).toISOString().split('T')[0] ? "(Kemarin)" : ""}
+                                    </span>
+                                </div>
+                            }
+                        >
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <ShiftCard
+                                    shift={shiftReports.shift1}
+                                    shiftName="Shift 1"
+                                    timeRange={shiftSettings.find(s => s.name === "Shift 1") ? `${shiftSettings.find(s => s.name === "Shift 1").startTime} - ${shiftSettings.find(s => s.name === "Shift 1").endTime}` : "06:00 - 14:00"}
+                                    icon={faSun}
+                                    color="yellow"
+                                    cashiers={shiftCashiers.shift1}
+                                    onDetailClick={handleShiftDetailClick}
+                                    shiftId="shift1"
+                                />
+                                <ShiftCard
+                                    shift={shiftReports.shift2}
+                                    shiftName="Shift 2"
+                                    timeRange={shiftSettings.find(s => s.name === "Shift 2") ? `${shiftSettings.find(s => s.name === "Shift 2").startTime} - ${shiftSettings.find(s => s.name === "Shift 2").endTime}` : "14:00 - 22:00"}
+                                    icon={faMoon}
+                                    color="blue"
+                                    cashiers={shiftCashiers.shift2}
+                                    onDetailClick={handleShiftDetailClick}
+                                    shiftId="shift2"
+                                />
+                            </div>
+                        </SectionContainer>
+
                         {/* Ringkasan Harian - DESAIN BARU DENGAN LAYOUT HORIZONTAL DAN ITEMS-START */}
                         <SectionContainer title="Ringkasan Harian (Semua Staff)">
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -1268,10 +1953,10 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
                                     color="red"
                                 />
                                 <StatCard
-                                    title="Rata-rata Transaksi"
-                                    value={data.ringkasanHarian.rataRataTransaksi}
-                                    trend={data.ringkasanHarian.trendRataRata || 0}
-                                    icon={faMoneyBillWave}
+                                    title="Total Diskon"
+                                    value={data.ringkasanHarian.totalDiskon}
+                                    trend={data.ringkasanHarian.trendDiskon || 0}
+                                    icon={faTags}
                                     isCurrency={true}
                                 />
                             </div>
@@ -1394,7 +2079,7 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
                                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Total Profit</th>
                                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Total Transaksi</th>
                                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Produk Terjual</th>
-                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Rata-rata Transaksi</th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Total Diskon</th>
                                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Aksi</th>
                                         </tr>
                                     </thead>
@@ -1419,11 +2104,13 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
                                                         </td>
                                                         <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{staffInfo.shift || 'Belum ditentukan'}</td>
                                                         <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">{formatRupiah(staffReport.current.totalPenjualan || 0)}</td>
-                                                        <td className="px-4 py-3 whitespace-nowrap text-sm font-semibold text-green-600">{formatRupiah(staffReport.current.totalProfit || 0)}</td>
+                                                        <td className={`px-4 py-3 whitespace-nowrap text-sm font-semibold ${(staffReport.current.totalProfit || 0) < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                                            {formatRupiah(staffReport.current.totalProfit || 0)}
+                                                        </td>
                                                         <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{staffReport.current.totalTransaksi || 0}</td>
                                                         <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{staffReport.current.totalItemTerjual || 0}</td>
                                                         <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
-                                                            {formatRupiah(rataRataTransaksi)}
+                                                            {formatRupiah(staffReport.current.totalDiskon || 0)}
                                                         </td>
                                                         <td className="px-4 py-3 whitespace-nowrap text-sm">
                                                             <button
@@ -1550,55 +2237,6 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
                             </div>
                         </div>
 
-                        {/* Grafik Transaksi */}
-                        {/* <div className="bg-white rounded-2xl shadow-md p-6 border border-gray-200">
-                            <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-lg font-semibold text-gray-800">Grafik Transaksi</h3>
-                                <div className="w-48">
-                                    <CustomSelect
-                                        name="dateFilter"
-                                        value={dateFilter}
-                                        onChange={(e) => setDateFilter(e.target.value)}
-                                        options={[
-                                            { value: 'hari', label: 'Hari Ini', icon: faCalendarDay },
-                                            { value: 'minggu', label: '7 Hari Terakhir', icon: faCalendarWeek },
-                                            { value: 'bulan', label: '30 Hari Terakhir', icon: faCalendarAlt }
-                                        ]}
-                                        placeholder="Pilih periode"
-                                        icon={faCalendarAlt}
-                                        size="sm"
-                                    />
-                                </div>
-                            </div>
-                            <div className="h-64">
-                                <Bar
-                                    data={{
-                                        labels: data.grafikTransaksi[dateFilter].labels,
-                                        datasets: [{
-                                            label: 'Transaksi',
-                                            data: data.grafikTransaksi[dateFilter].data,
-                                            backgroundColor: '#16a34a',
-                                            borderWidth: 0
-                                        }]
-                                    }}
-                                    options={{
-                                        responsive: true,
-                                        maintainAspectRatio: false,
-                                        plugins: {
-                                            legend: {
-                                                display: false
-                                            }
-                                        },
-                                        scales: {
-                                            y: {
-                                                beginAtZero: true
-                                            }
-                                        }
-                                    }}
-                                />
-                            </div>
-                        </div> */}
-
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                             {/* Grafik Produktivitas Shift */}
                             <div className="bg-white rounded-2xl shadow-md p-6 border border-gray-200">
@@ -1702,6 +2340,7 @@ const LaporanStaff = ({ formatRupiah, userName = "Admin" }) => {
                 )}
 
                 <StaffDetailModal />
+                <ShiftDetailModal />
             </div>
         </div>
     );

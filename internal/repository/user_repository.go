@@ -31,6 +31,35 @@ func (r *UserRepository) Create(user *models.User) error {
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
 
+	if database.UseDualMode && database.IsSQLite() {
+		id := database.GenerateOfflineID()
+		now := time.Now()
+		query := `
+		INSERT INTO users (id, username, password, nama_lengkap, role, status, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`
+
+		_, err := database.Exec(
+			query,
+			id,
+			user.Username,
+			string(hashedPassword),
+			user.NamaLengkap,
+			user.Role,
+			user.Status,
+			now,
+			now,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to create user: %w", err)
+		}
+
+		user.ID = id
+		user.CreatedAt = now
+		user.UpdatedAt = now
+		return nil
+	}
+
 	query := `
 		INSERT INTO users (username, password, nama_lengkap, role, status, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id
@@ -53,7 +82,7 @@ func (r *UserRepository) Create(user *models.User) error {
 		return fmt.Errorf("failed to create user: %w", err)
 	}
 
-	user.ID = int(id)
+	user.ID = id
 	user.CreatedAt = now
 	user.UpdatedAt = now
 
@@ -61,7 +90,7 @@ func (r *UserRepository) Create(user *models.User) error {
 }
 
 // GetByID retrieves a user by ID
-func (r *UserRepository) GetByID(id int) (*models.User, error) {
+func (r *UserRepository) GetByID(id int64) (*models.User, error) {
 	query := `
 		SELECT id, username, password, nama_lengkap, role, status, created_at, updated_at, deleted_at
 		FROM users
@@ -274,7 +303,7 @@ func (r *UserRepository) Update(user *models.User) error {
 }
 
 // UpdatePassword updates user password
-func (r *UserRepository) UpdatePassword(userID int, newPassword string) error {
+func (r *UserRepository) UpdatePassword(userID int64, newPassword string) error {
 	// Hash password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
@@ -305,7 +334,7 @@ func (r *UserRepository) UpdatePassword(userID int, newPassword string) error {
 }
 
 // Delete soft deletes a user
-func (r *UserRepository) Delete(id int) error {
+func (r *UserRepository) Delete(id int64) error {
 	query := `
 		UPDATE users
 		SET deleted_at = ?, updated_at = ?

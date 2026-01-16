@@ -43,7 +43,6 @@ import Pagination from '../../common/Pagination';
 import { getCategoryColor, getCategoryColorSchemes } from '../../../utils/categoryColors';
 import { usePreventBodyScrollMultiple } from '../../../hooks/usePreventBodyScroll';
 import DeleteConfirmationModal from '../../common/DeleteConfirmationModal';
-import DeleteNotification from '../../common/DeleteNotification';
 
 // CustomSelect Component
 const CustomSelect = ({
@@ -233,9 +232,7 @@ const DaftarProduk = () => {
     const [showStokHistoryModal, setShowStokHistoryModal] = useState(false);
     const [selectedProduk, setSelectedProduk] = useState(null);
 
-    // State untuk notifikasi delete
-    const [showDeleteNotification, setShowDeleteNotification] = useState(false);
-    const [deleteNotificationMessage, setDeleteNotificationMessage] = useState('');
+    // Modal states
 
     // Edit form state
     const [editForm, setEditForm] = useState({
@@ -344,16 +341,36 @@ const DaftarProduk = () => {
         if (!dateString) return '-';
         try {
             const date = new Date(dateString);
-            return date.toLocaleDateString('id-ID', {
-                day: '2-digit',
-                month: 'short',
-                year: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-            });
+            // We can't use "id-ID" locale if your environment doesn't support it.
+            // So we'll format manually:
+            const day = String(date.getDate()).padStart(2, '0');
+            const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+            const month = monthNames[date.getMonth()];
+            const year = date.getFullYear();
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            return `${day} ${month} ${year}, ${hours}:${minutes}`;
         } catch (error) {
             return '-';
         }
+    };
+
+    // Format angka dengan pemisah ribuan (format Indonesia)
+    const formatNumber = (value) => {
+        if (value === null || value === undefined) return 0;
+        const num = Number(value);
+
+        // Jika angka adalah bilangan bulat
+        if (num % 1 === 0) {
+            // Format dengan pemisah ribuan (titik untuk format Indonesia)
+            return num.toLocaleString('id-ID', { maximumFractionDigits: 0 });
+        }
+
+        // Jika memiliki desimal, tampilkan maksimal 1 desimal dengan pemisah ribuan
+        return num.toLocaleString('id-ID', {
+            minimumFractionDigits: 1,
+            maximumFractionDigits: 1
+        });
     };
 
     // Filter products
@@ -607,12 +624,7 @@ const DaftarProduk = () => {
             // Update local state
             setProduks(produks.filter(p => p.id !== selectedProduk.id));
 
-            setDeleteNotificationMessage('Produk berhasil dihapus!');
-            setShowDeleteNotification(true);
-
-            setTimeout(() => {
-                setShowDeleteNotification(false);
-            }, 3000);
+            toast.showSuccess('Produk berhasil dihapus!');
 
             setShowDeleteModal(false);
             setSelectedProduk(null);
@@ -668,12 +680,6 @@ const DaftarProduk = () => {
     return (
         <div className="page overflow-x-hidden min-h-screen bg-gray-50 p-8">
             {/* Notifikasi Delete */}
-            {showDeleteNotification && (
-                <DeleteNotification
-                    message={deleteNotificationMessage}
-                    duration={3000}
-                />
-            )}
 
             {/* Header Section */}
             <div className="mb-8">
@@ -893,7 +899,9 @@ const DaftarProduk = () => {
                                                         {formatRupiah(produk.hargaJual)}
                                                     </div>
                                                     <div className="text-xs text-gray-500">
-                                                        per 1000 gram
+                                                        {produk.jenisProduk === 'curah'
+                                                            ? 'per 1000 gram'
+                                                            : `per 1 ${produk.satuan || 'pcs'}`}
                                                     </div>
                                                 </td>
 
@@ -903,7 +911,7 @@ const DaftarProduk = () => {
                                                         (produk.stok || 0) <= 50 ? 'text-yellow-600' :
                                                             'text-green-600'
                                                         }`}>
-                                                        {(produk.stok || 0).toFixed(2)} kg
+                                                        {formatNumber(produk.stok || 0)} {produk.satuan || 'kg'}
                                                     </div>
                                                 </td>
 
@@ -1094,7 +1102,11 @@ const DaftarProduk = () => {
                                                 <p className="text-lg font-semibold text-green-600 mt-1">
                                                     {formatRupiah(selectedProduk.hargaJual)}
                                                 </p>
-                                                <p className="text-xs text-gray-500">per 1000 gram</p>
+                                                <p className="text-xs text-gray-500">
+                                                    {selectedProduk.jenisProduk === 'curah'
+                                                        ? 'per 1000 gram'
+                                                        : `per 1 ${selectedProduk.satuan || 'pcs'}`}
+                                                </p>
                                             </div>
                                             <div>
                                                 <label className="block text-sm font-medium text-gray-600">Stok</label>
@@ -1102,7 +1114,7 @@ const DaftarProduk = () => {
                                                     (selectedProduk.stok || 0) <= 50 ? 'text-yellow-600' :
                                                         'text-green-600'
                                                     }`}>
-                                                    {(selectedProduk.stok || 0).toFixed(2)} {selectedProduk.satuan}
+                                                    {formatNumber(selectedProduk.stok || 0)} {selectedProduk.satuan}
                                                 </p>
                                             </div>
                                             <div>
@@ -1190,11 +1202,10 @@ const DaftarProduk = () => {
 
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                         {/* Radio: Curah (Ditimbang) */}
-                                        <label className={`relative flex items-start p-3 cursor-pointer rounded-lg border-2 transition-all ${
-                                            editForm.jenisProduk === 'curah'
-                                                ? 'border-green-500 bg-green-50'
-                                                : 'border-gray-300 bg-white hover:border-green-300'
-                                        }`}>
+                                        <label className={`relative flex items-start p-3 cursor-pointer rounded-lg border-2 transition-all ${editForm.jenisProduk === 'curah'
+                                            ? 'border-green-500 bg-green-50'
+                                            : 'border-gray-300 bg-white hover:border-green-300'
+                                            }`}>
                                             <input
                                                 type="radio"
                                                 name="jenisProduk"
@@ -1214,11 +1225,10 @@ const DaftarProduk = () => {
                                         </label>
 
                                         {/* Radio: Satuan Tetap */}
-                                        <label className={`relative flex items-start p-3 cursor-pointer rounded-lg border-2 transition-all ${
-                                            editForm.jenisProduk === 'satuan'
-                                                ? 'border-blue-500 bg-blue-50'
-                                                : 'border-gray-300 bg-white hover:border-blue-300'
-                                        }`}>
+                                        <label className={`relative flex items-start p-3 cursor-pointer rounded-lg border-2 transition-all ${editForm.jenisProduk === 'satuan'
+                                            ? 'border-blue-500 bg-blue-50'
+                                            : 'border-gray-300 bg-white hover:border-blue-300'
+                                            }`}>
                                             <input
                                                 type="radio"
                                                 name="jenisProduk"
@@ -1252,7 +1262,7 @@ const DaftarProduk = () => {
                                             onChange={handleEditFormChange}
                                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 bg-white text-sm transition-all duration-200"
                                         />
-                                    </div> 
+                                    </div>
                                     <div>
                                         <label className="block text-xs font-semibold text-gray-700 mb-2">
                                             Kode Barcode

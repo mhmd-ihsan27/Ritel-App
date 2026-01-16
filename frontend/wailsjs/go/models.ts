@@ -223,8 +223,9 @@ export namespace models {
 	    produkYId?: number;
 	    kode: string;
 	    tipe: string;
-	    tipe_promo: string;
-	    tipeProdukBerlaku: string;
+	    tipePromo: string;
+	    tipeProduk: string;
+	    minGramasi: number;
 	    nilai: number;
 	    minQuantity: number;
 	    maxDiskon: number;
@@ -259,8 +260,9 @@ export namespace models {
 	        this.produkYId = source["produkYId"];
 	        this.kode = source["kode"];
 	        this.tipe = source["tipe"];
-	        this.tipe_promo = source["tipe_promo"];
-	        this.tipeProdukBerlaku = source["tipeProdukBerlaku"];
+	        this.tipePromo = source["tipePromo"];
+	        this.tipeProduk = source["tipeProduk"];
+	        this.minGramasi = source["minGramasi"];
 	        this.nilai = source["nilai"];
 	        this.minQuantity = source["minQuantity"];
 	        this.maxDiskon = source["maxDiskon"];
@@ -739,6 +741,7 @@ export namespace models {
 	    totalTransaksi: number;
 	    totalPenjualan: number;
 	    totalProfit: number;
+	    totalDiskon: number;
 	    totalItemTerjual: number;
 	    totalRefund: number;
 	    totalReturnCount: number;
@@ -758,6 +761,7 @@ export namespace models {
 	        this.totalTransaksi = source["totalTransaksi"];
 	        this.totalPenjualan = source["totalPenjualan"];
 	        this.totalProfit = source["totalProfit"];
+	        this.totalDiskon = source["totalDiskon"];
 	        this.totalItemTerjual = source["totalItemTerjual"];
 	        this.totalRefund = source["totalRefund"];
 	        this.totalReturnCount = source["totalReturnCount"];
@@ -887,8 +891,9 @@ export namespace models {
 	    nama: string;
 	    kode: string;
 	    tipe: string;
-	    tipe_promo: string;
-	    tipeProdukBerlaku: string;
+	    tipePromo: string;
+	    tipeProduk: string;
+	    minGramasi: number;
 	    nilai: number;
 	    minQuantity: number;
 	    maxDiskon: number;
@@ -915,8 +920,9 @@ export namespace models {
 	        this.nama = source["nama"];
 	        this.kode = source["kode"];
 	        this.tipe = source["tipe"];
-	        this.tipe_promo = source["tipe_promo"];
-	        this.tipeProdukBerlaku = source["tipeProdukBerlaku"];
+	        this.tipePromo = source["tipePromo"];
+	        this.tipeProduk = source["tipeProduk"];
+	        this.minGramasi = source["minGramasi"];
 	        this.nilai = source["nilai"];
 	        this.minQuantity = source["minQuantity"];
 	        this.maxDiskon = source["maxDiskon"];
@@ -1020,6 +1026,8 @@ export namespace models {
 	    promoKode: string;
 	    poinDitukar: number;
 	    diskon: number;
+	    diskonPromo: number;
+	    diskonPelanggan: number;
 	    catatan: string;
 	    kasir: string;
 	    staffId: number;
@@ -1041,6 +1049,8 @@ export namespace models {
 	        this.promoKode = source["promoKode"];
 	        this.poinDitukar = source["poinDitukar"];
 	        this.diskon = source["diskon"];
+	        this.diskonPromo = source["diskonPromo"];
+	        this.diskonPelanggan = source["diskonPelanggan"];
 	        this.catatan = source["catatan"];
 	        this.kasir = source["kasir"];
 	        this.staffId = source["staffId"];
@@ -1689,6 +1699,7 @@ export namespace models {
 	    level: number;
 	    tipe: string;
 	    poin: number;
+	    diskonPersen: number;
 	    totalTransaksi: number;
 	    totalBelanja: number;
 	    // Go type: time
@@ -1710,6 +1721,7 @@ export namespace models {
 	        this.level = source["level"];
 	        this.tipe = source["tipe"];
 	        this.poin = source["poin"];
+	        this.diskonPersen = source["diskonPersen"];
 	        this.totalTransaksi = source["totalTransaksi"];
 	        this.totalBelanja = source["totalBelanja"];
 	        this.createdAt = this.convertValues(source["createdAt"], null);
@@ -1756,6 +1768,7 @@ export namespace models {
 	    kasir: string;
 	    staffId?: number;
 	    staffNama: string;
+	    profit: number;
 	    // Go type: time
 	    createdAt: any;
 	
@@ -1785,6 +1798,7 @@ export namespace models {
 	        this.kasir = source["kasir"];
 	        this.staffId = source["staffId"];
 	        this.staffNama = source["staffNama"];
+	        this.profit = source["profit"];
 	        this.createdAt = this.convertValues(source["createdAt"], null);
 	    }
 	
@@ -2304,12 +2318,253 @@ export namespace models {
 		    return a;
 		}
 	}
+	export class ShiftCashier {
+	    id: number;
+	    nama: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ShiftCashier(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.nama = source["nama"];
+	    }
+	}
+	export class ShiftStaffPerf {
+	    name: string;
+	    transactions: number;
+	    revenue: number;
+	    productsSold: number;
+	    averageTransaction: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ShiftStaffPerf(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.transactions = source["transactions"];
+	        this.revenue = source["revenue"];
+	        this.productsSold = source["productsSold"];
+	        this.averageTransaction = source["averageTransaction"];
+	    }
+	}
+	export class ShiftHourlyData {
+	    hour: string;
+	    revenue: number;
+	    transactions: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ShiftHourlyData(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.hour = source["hour"];
+	        this.revenue = source["revenue"];
+	        this.transactions = source["transactions"];
+	    }
+	}
+	export class ShiftProduct {
+	    name: string;
+	    category: string;
+	    quantity: number;
+	    revenue: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ShiftProduct(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.category = source["category"];
+	        this.quantity = source["quantity"];
+	        this.revenue = source["revenue"];
+	    }
+	}
+	export class ShiftTransaction {
+	    id: number;
+	    nomorTransaksi: string;
+	    // Go type: time
+	    time: any;
+	    cashier: string;
+	    products: string;
+	    total: number;
+	    itemCount: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ShiftTransaction(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.nomorTransaksi = source["nomorTransaksi"];
+	        this.time = this.convertValues(source["time"], null);
+	        this.cashier = source["cashier"];
+	        this.products = source["products"];
+	        this.total = source["total"];
+	        this.itemCount = source["itemCount"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ShiftDetailResponse {
+	    transactions: ShiftTransaction[];
+	    topProducts: ShiftProduct[];
+	    hourlyData: ShiftHourlyData[];
+	    staffPerformance: ShiftStaffPerf[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ShiftDetailResponse(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.transactions = this.convertValues(source["transactions"], ShiftTransaction);
+	        this.topProducts = this.convertValues(source["topProducts"], ShiftProduct);
+	        this.hourlyData = this.convertValues(source["hourlyData"], ShiftHourlyData);
+	        this.staffPerformance = this.convertValues(source["staffPerformance"], ShiftStaffPerf);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	export class ShiftStats {
+	    totalPenjualan: number;
+	    totalProfit: number;
+	    totalTransaksi: number;
+	    totalItemTerjual: number;
+	    totalRefund: number;
+	    totalDiskon: number;
+	    staffCount: number;
+	    trendPenjualan: number;
+	    trendProfit: number;
+	    trendTransaksi: number;
+	    trendProduk: number;
+	    trendRefund: number;
+	    trendDiskon: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ShiftStats(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.totalPenjualan = source["totalPenjualan"];
+	        this.totalProfit = source["totalProfit"];
+	        this.totalTransaksi = source["totalTransaksi"];
+	        this.totalItemTerjual = source["totalItemTerjual"];
+	        this.totalRefund = source["totalRefund"];
+	        this.totalDiskon = source["totalDiskon"];
+	        this.staffCount = source["staffCount"];
+	        this.trendPenjualan = source["trendPenjualan"];
+	        this.trendProfit = source["trendProfit"];
+	        this.trendTransaksi = source["trendTransaksi"];
+	        this.trendProduk = source["trendProduk"];
+	        this.trendRefund = source["trendRefund"];
+	        this.trendDiskon = source["trendDiskon"];
+	    }
+	}
+	export class ShiftReportsResponse {
+	    shift1?: ShiftStats;
+	    shift2?: ShiftStats;
+	
+	    static createFrom(source: any = {}) {
+	        return new ShiftReportsResponse(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.shift1 = this.convertValues(source["shift1"], ShiftStats);
+	        this.shift2 = this.convertValues(source["shift2"], ShiftStats);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ShiftSetting {
+	    id: number;
+	    name: string;
+	    startTime: string;
+	    endTime: string;
+	    staffIds: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ShiftSetting(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.startTime = source["startTime"];
+	        this.endTime = source["endTime"];
+	        this.staffIds = source["staffIds"];
+	    }
+	}
+	
+	
+	
 	export class StaffDailyReport {
 	    // Go type: time
 	    tanggal: any;
 	    totalTransaksi: number;
 	    totalPenjualan: number;
 	    totalProfit: number;
+	    totalDiskon: number;
 	    totalItemTerjual: number;
 	
 	    static createFrom(source: any = {}) {
@@ -2322,6 +2577,7 @@ export namespace models {
 	        this.totalTransaksi = source["totalTransaksi"];
 	        this.totalPenjualan = source["totalPenjualan"];
 	        this.totalProfit = source["totalProfit"];
+	        this.totalDiskon = source["totalDiskon"];
 	        this.totalItemTerjual = source["totalItemTerjual"];
 	    }
 	
@@ -2651,8 +2907,9 @@ export namespace models {
 	    nama: string;
 	    kode: string;
 	    tipe: string;
-	    tipe_promo: string;
-	    tipeProdukBerlaku: string;
+	    tipePromo: string;
+	    tipeProduk: string;
+	    minGramasi: number;
 	    nilai: number;
 	    minQuantity: number;
 	    maxDiskon: number;
@@ -2680,8 +2937,9 @@ export namespace models {
 	        this.nama = source["nama"];
 	        this.kode = source["kode"];
 	        this.tipe = source["tipe"];
-	        this.tipe_promo = source["tipe_promo"];
-	        this.tipeProdukBerlaku = source["tipeProdukBerlaku"];
+	        this.tipePromo = source["tipePromo"];
+	        this.tipeProduk = source["tipeProduk"];
+	        this.minGramasi = source["minGramasi"];
 	        this.nilai = source["nilai"];
 	        this.minQuantity = source["minQuantity"];
 	        this.maxDiskon = source["maxDiskon"];
@@ -2748,6 +3006,25 @@ export namespace models {
 	        this.namaLengkap = source["namaLengkap"];
 	        this.role = source["role"];
 	        this.status = source["status"];
+	    }
+	}
+
+}
+
+export namespace struct { UserID int64 "json:\"userId\""; NewPassword string "json:\"newPassword\"" } {
+	
+	export class  {
+	    userId: number;
+	    newPassword: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new (source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.userId = source["userId"];
+	        this.newPassword = source["newPassword"];
 	    }
 	}
 

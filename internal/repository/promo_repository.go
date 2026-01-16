@@ -17,16 +17,74 @@ func NewPromoRepository() *PromoRepository {
 }
 
 func (r *PromoRepository) Create(promo *models.Promo) error {
-	query := `
+	if database.UseDualMode && database.IsSQLite() {
+		id := database.GenerateOfflineID()
+		query := `
         INSERT INTO promo (
-            nama, kode, tipe, tipe_promo, tipe_produk_berlaku, nilai, min_quantity, max_diskon,
+            id, nama, kode, tipe, tipe_promo, tipe_produk, min_gramasi, nilai, min_quantity, max_diskon,
             tanggal_mulai, tanggal_selesai, status, deskripsi,
             buy_quantity, get_quantity, tipe_buy_get,
             harga_bundling, tipe_bundling, diskon_bundling,
             produk_x, produk_y,
             created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING id
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `
+
+		var produkX, produkY interface{}
+		if promo.ProdukXID > 0 {
+			produkX = promo.ProdukXID
+		} else {
+			produkX = nil
+		}
+		if promo.ProdukYID > 0 {
+			produkY = promo.ProdukYID
+		} else {
+			produkY = nil
+		}
+
+		_, err := database.Exec(query,
+			id,
+			promo.Nama,
+			promo.Kode,
+			promo.Tipe,
+			promo.TipePromo,
+			promo.TipeProduk, // BARU
+			promo.MinGramasi, // BARU
+			promo.Nilai,
+			promo.MinQuantity,
+			promo.MaxDiskon,
+			promo.TanggalMulai,
+			promo.TanggalSelesai,
+			promo.Status,
+			promo.Deskripsi,
+			promo.BuyQuantity,
+			promo.GetQuantity,
+			promo.TipeBuyGet,
+			promo.HargaBundling,
+			promo.TipeBundling,
+			promo.DiskonBundling,
+			produkX,
+			produkY,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to create promo: %w", err)
+		}
+
+		promo.ID = int(id)
+		return nil
+	}
+
+	query := `
+        INSERT INTO promo (
+            nama, kode, tipe, tipe_promo, tipe_produk, min_gramasi, nilai, min_quantity, max_diskon,
+            tanggal_mulai, tanggal_selesai, status, deskripsi,
+            buy_quantity, get_quantity, tipe_buy_get,
+            harga_bundling, tipe_bundling, diskon_bundling,
+            produk_x, produk_y,
+            created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING id
     `
 
 	var produkX, produkY interface{}
@@ -47,9 +105,10 @@ func (r *PromoRepository) Create(promo *models.Promo) error {
 		promo.Kode,
 		promo.Tipe,
 		promo.TipePromo,
-		promo.TipeProdukBerlaku,
+		promo.TipeProduk, // BARU
+		promo.MinGramasi, // BARU
 		promo.Nilai,
-		promo.MinQuantity, // PASTIKAN INI
+		promo.MinQuantity,
 		promo.MaxDiskon,
 		promo.TanggalMulai,
 		promo.TanggalSelesai,
@@ -76,7 +135,7 @@ func (r *PromoRepository) Create(promo *models.Promo) error {
 func (r *PromoRepository) GetAll() ([]*models.Promo, error) {
 	query := `
 		SELECT
-			p.id, p.nama, p.kode, p.tipe, p.tipe_promo, p.tipe_produk_berlaku, p.nilai, p.min_quantity, p.max_diskon,
+			p.id, p.nama, p.kode, p.tipe, p.tipe_promo, p.tipe_produk, p.min_gramasi, p.nilai, p.min_quantity, p.max_diskon,
 			p.tanggal_mulai, p.tanggal_selesai, p.status, p.deskripsi,
 			p.buy_quantity, p.get_quantity, p.tipe_buy_get,
 			p.harga_bundling, p.tipe_bundling, p.diskon_bundling,
@@ -99,7 +158,7 @@ func (r *PromoRepository) GetAll() ([]*models.Promo, error) {
 	var promos []*models.Promo
 	for rows.Next() {
 		var p models.Promo
-		var kode, deskripsi, tipePromo, tipeProdukBerlaku, tipeBuyGet, tipeBundling sql.NullString
+		var kode, deskripsi, tipePromo, tipeProduk, tipeBuyGet, tipeBundling sql.NullString
 		var tanggalMulai, tanggalSelesai sql.NullTime
 		var produkXID, produkYID sql.NullInt64
 		var produkXNama, produkXHarga, produkYNama, produkYHarga sql.NullString
@@ -110,7 +169,8 @@ func (r *PromoRepository) GetAll() ([]*models.Promo, error) {
 			&kode,
 			&p.Tipe,
 			&tipePromo,
-			&tipeProdukBerlaku,
+			&tipeProduk,
+			&p.MinGramasi,
 			&p.Nilai,
 			&p.MinQuantity,
 			&p.MaxDiskon,
@@ -148,8 +208,8 @@ func (r *PromoRepository) GetAll() ([]*models.Promo, error) {
 		if tipePromo.Valid {
 			p.TipePromo = tipePromo.String
 		}
-		if tipeProdukBerlaku.Valid {
-			p.TipeProdukBerlaku = tipeProdukBerlaku.String
+		if tipeProduk.Valid {
+			p.TipeProduk = tipeProduk.String
 		}
 		if tipeBuyGet.Valid {
 			p.TipeBuyGet = tipeBuyGet.String
@@ -191,11 +251,10 @@ func (r *PromoRepository) GetAll() ([]*models.Promo, error) {
 func (r *PromoRepository) GetByID(id int) (*models.Promo, error) {
 	query := `
         SELECT
-            p.id, p.nama, p.kode, p.tipe, p.tipe_promo, p.tipe_produk_berlaku, p.nilai, p.min_quantity, p.max_diskon,
+            p.id, p.nama, p.kode, p.tipe, p.tipe_promo, p.tipe_produk, p.min_gramasi, p.nilai, p.min_quantity, p.max_diskon,
             p.tanggal_mulai, p.tanggal_selesai, p.status, p.deskripsi,
-            p.buy_quantity, p.get_quantity, p.tipe_buy_get,
-            p.harga_bundling, p.tipe_bundling, p.diskon_bundling,
-            p.produk_x, p.produk_y,
+            p.buy_quantity, p.get_quantity, p.harga_bundling, p.tipe_bundling, p.diskon_bundling,
+            p.produk_x, p.produk_y, p.tipe_buy_get,
             p.created_at, p.updated_at,
             px.id as px_id, px.nama as px_nama, px.harga_jual as px_harga,
             py.id as py_id, py.nama as py_nama, py.harga_jual as py_harga
@@ -206,42 +265,20 @@ func (r *PromoRepository) GetByID(id int) (*models.Promo, error) {
     `
 
 	var p models.Promo
-	var kode, deskripsi, tipePromo, tipeProdukBerlaku, tipeBuyGet, tipeBundling sql.NullString
+	var kodeVal, deskripsi, tipePromo, tipeProduk, tipeBundling, tipeBuyGet sql.NullString
 	var tanggalMulai, tanggalSelesai sql.NullTime
 	var produkXID, produkYID sql.NullInt64
 	var produkXNama, produkXHarga, produkYNama, produkYHarga sql.NullString
-	var minQuantity sql.NullInt64 // TAMBAH INI
 
 	err := database.QueryRow(query, id).Scan(
-		&p.ID,
-		&p.Nama,
-		&kode,
-		&p.Tipe,
-		&tipePromo,
-		&tipeProdukBerlaku,
-		&p.Nilai,
-		&minQuantity, // TAMBAH INI
-		&p.MaxDiskon,
-		&tanggalMulai,
-		&tanggalSelesai,
-		&p.Status,
-		&deskripsi,
-		&p.BuyQuantity,
-		&p.GetQuantity,
-		&tipeBuyGet,
-		&p.HargaBundling,
-		&tipeBundling,
-		&p.DiskonBundling,
-		&produkXID,
-		&produkYID,
-		&p.CreatedAt,
-		&p.UpdatedAt,
-		&produkXID, // Duplicate but needed for product data
-		&produkXNama,
-		&produkXHarga,
-		&produkYID, // Duplicate but needed for product data
-		&produkYNama,
-		&produkYHarga,
+		&p.ID, &p.Nama, &kodeVal, &p.Tipe, &tipePromo, &tipeProduk, &p.MinGramasi, &p.Nilai,
+		&p.MinQuantity, &p.MaxDiskon, &tanggalMulai, &tanggalSelesai,
+		&p.Status, &deskripsi, &p.BuyQuantity, &p.GetQuantity,
+		&p.HargaBundling, &tipeBundling, &p.DiskonBundling,
+		&produkXID, &produkYID, &tipeBuyGet,
+		&p.CreatedAt, &p.UpdatedAt,
+		&produkXID, &produkXNama, &produkXHarga,
+		&produkYID, &produkYNama, &produkYHarga,
 	)
 
 	if err == sql.ErrNoRows {
@@ -252,8 +289,8 @@ func (r *PromoRepository) GetByID(id int) (*models.Promo, error) {
 	}
 
 	// Set nullable fields
-	if kode.Valid {
-		p.Kode = kode.String
+	if kodeVal.Valid {
+		p.Kode = kodeVal.String
 	}
 	if deskripsi.Valid {
 		p.Deskripsi = deskripsi.String
@@ -261,8 +298,8 @@ func (r *PromoRepository) GetByID(id int) (*models.Promo, error) {
 	if tipePromo.Valid {
 		p.TipePromo = tipePromo.String
 	}
-	if tipeProdukBerlaku.Valid {
-		p.TipeProdukBerlaku = tipeProdukBerlaku.String
+	if tipeProduk.Valid {
+		p.TipeProduk = tipeProduk.String
 	}
 	if tipeBuyGet.Valid {
 		p.TipeBuyGet = tipeBuyGet.String
@@ -275,9 +312,6 @@ func (r *PromoRepository) GetByID(id int) (*models.Promo, error) {
 	}
 	if tanggalSelesai.Valid {
 		p.TanggalSelesai = tanggalSelesai.Time
-	}
-	if minQuantity.Valid { // TAMBAH INI
-		p.MinQuantity = int(minQuantity.Int64)
 	}
 
 	// Set produk X jika ada
@@ -307,7 +341,7 @@ func (r *PromoRepository) GetByID(id int) (*models.Promo, error) {
 func (r *PromoRepository) GetByKode(kode string) (*models.Promo, error) {
 	query := `
         SELECT
-            p.id, p.nama, p.kode, p.tipe, p.tipe_promo, p.tipe_produk_berlaku, p.nilai, p.min_quantity, p.max_diskon,
+            p.id, p.nama, p.kode, p.tipe, p.tipe_promo, p.tipe_produk, p.min_gramasi, p.nilai, p.min_quantity, p.max_diskon,
             p.tanggal_mulai, p.tanggal_selesai, p.status, p.deskripsi,
             p.buy_quantity, p.get_quantity, p.harga_bundling, p.tipe_bundling, p.diskon_bundling,
             p.produk_x, p.produk_y, p.tipe_buy_get,
@@ -320,13 +354,13 @@ func (r *PromoRepository) GetByKode(kode string) (*models.Promo, error) {
         WHERE p.kode = ?`
 
 	var p models.Promo
-	var kodeVal, deskripsi, tipePromo, tipeProdukBerlaku, tipeBundling, tipeBuyGet sql.NullString
+	var kodeVal, deskripsi, tipePromo, tipeProduk, tipeBundling, tipeBuyGet sql.NullString
 	var tanggalMulai, tanggalSelesai sql.NullTime
 	var produkXID, produkYID sql.NullInt64
 	var produkXNama, produkXHarga, produkYNama, produkYHarga sql.NullString
 
 	err := database.QueryRow(query, kode).Scan(
-		&p.ID, &p.Nama, &kodeVal, &p.Tipe, &tipePromo, &tipeProdukBerlaku, &p.Nilai,
+		&p.ID, &p.Nama, &kodeVal, &p.Tipe, &tipePromo, &tipeProduk, &p.MinGramasi, &p.Nilai,
 		&p.MinQuantity, &p.MaxDiskon, &tanggalMulai, &tanggalSelesai,
 		&p.Status, &deskripsi, &p.BuyQuantity, &p.GetQuantity,
 		&p.HargaBundling, &tipeBundling, &p.DiskonBundling,
@@ -353,8 +387,8 @@ func (r *PromoRepository) GetByKode(kode string) (*models.Promo, error) {
 	if tipePromo.Valid {
 		p.TipePromo = tipePromo.String
 	}
-	if tipeProdukBerlaku.Valid {
-		p.TipeProdukBerlaku = tipeProdukBerlaku.String
+	if tipeProduk.Valid {
+		p.TipeProduk = tipeProduk.String
 	}
 	if tipeBundling.Valid {
 		p.TipeBundling = tipeBundling.String
@@ -395,7 +429,7 @@ func (r *PromoRepository) GetByKode(kode string) (*models.Promo, error) {
 func (r *PromoRepository) GetActivePromos() ([]*models.Promo, error) {
 	query := `
         SELECT
-            p.id, p.nama, p.kode, p.tipe, p.tipe_promo, p.tipe_produk_berlaku, p.nilai, p.min_quantity, p.max_diskon,
+            p.id, p.nama, p.kode, p.tipe, p.tipe_promo, p.tipe_produk, p.min_gramasi, p.nilai, p.min_quantity, p.max_diskon,
             p.tanggal_mulai, p.tanggal_selesai, p.status, p.deskripsi,
             p.buy_quantity, p.get_quantity, p.harga_bundling, p.tipe_bundling, p.diskon_bundling,
             p.produk_x, p.produk_y, p.tipe_buy_get,
@@ -420,41 +454,20 @@ func (r *PromoRepository) GetActivePromos() ([]*models.Promo, error) {
 	var promos []*models.Promo
 	for rows.Next() {
 		var p models.Promo
-		var kode, deskripsi, tipePromo, tipeProdukBerlaku, tipeBundling, tipeBuyGet sql.NullString
+		var kode, deskripsi, tipePromo, tipeProduk, tipeBundling, tipeBuyGet sql.NullString
 		var tanggalMulai, tanggalSelesai sql.NullTime
 		var produkXID, produkYID sql.NullInt64
 		var produkXNama, produkXHarga, produkYNama, produkYHarga sql.NullString
 
 		err := rows.Scan(
-			&p.ID,
-			&p.Nama,
-			&kode,
-			&p.Tipe,
-			&tipePromo,
-			&tipeProdukBerlaku,
-			&p.Nilai,
-			&p.MinQuantity,
-			&p.MaxDiskon,
-			&tanggalMulai,
-			&tanggalSelesai,
-			&p.Status,
-			&deskripsi,
-			&p.BuyQuantity,
-			&p.GetQuantity,
-			&p.HargaBundling,
-			&tipeBundling,
-			&p.DiskonBundling,
-			&produkXID,
-			&produkYID,
-			&tipeBuyGet,
-			&p.CreatedAt,
-			&p.UpdatedAt,
-			&produkXID, // Duplicate for product data
-			&produkXNama,
-			&produkXHarga,
-			&produkYID, // Duplicate for product data
-			&produkYNama,
-			&produkYHarga,
+			&p.ID, &p.Nama, &kode, &p.Tipe, &tipePromo, &tipeProduk, &p.MinGramasi, &p.Nilai,
+			&p.MinQuantity, &p.MaxDiskon, &tanggalMulai, &tanggalSelesai,
+			&p.Status, &deskripsi, &p.BuyQuantity, &p.GetQuantity,
+			&p.HargaBundling, &tipeBundling, &p.DiskonBundling,
+			&produkXID, &produkYID, &tipeBuyGet,
+			&p.CreatedAt, &p.UpdatedAt,
+			&produkXID, &produkXNama, &produkXHarga,
+			&produkYID, &produkYNama, &produkYHarga,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan promo: %w", err)
@@ -470,8 +483,8 @@ func (r *PromoRepository) GetActivePromos() ([]*models.Promo, error) {
 		if tipePromo.Valid {
 			p.TipePromo = tipePromo.String
 		}
-		if tipeProdukBerlaku.Valid {
-			p.TipeProdukBerlaku = tipeProdukBerlaku.String
+		if tipeProduk.Valid {
+			p.TipeProduk = tipeProduk.String
 		}
 		if tipeBundling.Valid {
 			p.TipeBundling = tipeBundling.String
@@ -516,7 +529,7 @@ func (r *PromoRepository) GetActivePromos() ([]*models.Promo, error) {
 func (r *PromoRepository) Update(promo *models.Promo) error {
 	query := `
         UPDATE promo
-        SET nama = ?, kode = ?, tipe = ?, tipe_promo = ?, tipe_produk_berlaku = ?, nilai = ?, min_quantity = ?,
+        SET nama = ?, kode = ?, tipe = ?, tipe_promo = ?, tipe_produk = ?, min_gramasi = ?, nilai = ?, min_quantity = ?,
             max_diskon = ?, tanggal_mulai = ?, tanggal_selesai = ?,
             status = ?, deskripsi = ?, buy_quantity = ?, get_quantity = ?, tipe_buy_get = ?,
             harga_bundling = ?, tipe_bundling = ?, diskon_bundling = ?,
@@ -541,9 +554,10 @@ func (r *PromoRepository) Update(promo *models.Promo) error {
 		promo.Kode,
 		promo.Tipe,
 		promo.TipePromo,
-		promo.TipeProdukBerlaku,
+		promo.TipeProduk,
+		promo.MinGramasi,
 		promo.Nilai,
-		promo.MinQuantity, // PASTIKAN INI
+		promo.MinQuantity,
 		promo.MaxDiskon,
 		promo.TanggalMulai,
 		promo.TanggalSelesai,
@@ -604,6 +618,21 @@ func (r *PromoRepository) Delete(id int) error {
 
 // AddPromoProduk adds a product to a promo
 func (r *PromoRepository) AddPromoProduk(promoID, produkID int) error {
+	if database.UseDualMode && database.IsSQLite() {
+		id := database.GenerateOfflineID()
+		query := `
+		INSERT INTO promo_produk (id, promo_id, produk_id, created_at)
+		VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+	`
+
+		_, err := database.Exec(query, id, promoID, produkID)
+		if err != nil {
+			return fmt.Errorf("failed to add promo produk: %w", err)
+		}
+
+		return nil
+	}
+
 	query := `
 		INSERT INTO promo_produk (promo_id, produk_id, created_at)
 		VALUES (?, ?, CURRENT_TIMESTAMP)
@@ -737,7 +766,7 @@ func (r *PromoRepository) GetPromoForProduct(produkID int) ([]*models.Promo, err
 	now := time.Now()
 	query := `
         SELECT
-            p.id, p.nama, p.kode, p.tipe, p.tipe_promo, p.tipe_produk_berlaku, p.nilai, p.min_quantity, p.max_diskon,
+            p.id, p.nama, p.kode, p.tipe, p.tipe_promo, p.tipe_produk, p.nilai, p.min_quantity, p.max_diskon,
             p.tanggal_mulai, p.tanggal_selesai, p.status, p.deskripsi,
             p.buy_quantity, p.get_quantity, p.harga_bundling, p.tipe_bundling, p.diskon_bundling,
             p.produk_x, p.produk_y, p.tipe_buy_get,
@@ -760,7 +789,7 @@ func (r *PromoRepository) GetPromoForProduct(produkID int) ([]*models.Promo, err
 	var promos []*models.Promo
 	for rows.Next() {
 		var p models.Promo
-		var kode, deskripsi, tipePromo, tipeProdukBerlaku, tipeBundling, tipeBuyGet sql.NullString
+		var kode, deskripsi, tipePromo, tipeProduk, tipeBundling, tipeBuyGet sql.NullString
 		var tanggalMulai, tanggalSelesai sql.NullTime
 		var produkX, produkY sql.NullInt64
 
@@ -770,7 +799,7 @@ func (r *PromoRepository) GetPromoForProduct(produkID int) ([]*models.Promo, err
 			&kode,
 			&p.Tipe,
 			&tipePromo,
-			&tipeProdukBerlaku,
+			&tipeProduk,
 			&p.Nilai,
 			&p.MinQuantity, // ✅ FIXED
 			&p.MaxDiskon,
@@ -803,8 +832,8 @@ func (r *PromoRepository) GetPromoForProduct(produkID int) ([]*models.Promo, err
 		if tipePromo.Valid {
 			p.TipePromo = tipePromo.String
 		}
-		if tipeProdukBerlaku.Valid {
-			p.TipeProdukBerlaku = tipeProdukBerlaku.String
+		if tipeProduk.Valid {
+			p.TipeProduk = tipeProduk.String
 		}
 		if tipeBundling.Valid {
 			p.TipeBundling = tipeBundling.String

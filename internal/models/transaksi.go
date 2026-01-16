@@ -4,10 +4,10 @@ import "time"
 
 // Transaksi represents a transaction header
 type Transaksi struct {
-	ID              int       `json:"id"`
+	ID              int64     `json:"id,string"` // Marshal as string to prevent JS precision loss
 	NomorTransaksi  string    `json:"nomorTransaksi"`
 	Tanggal         time.Time `json:"tanggal"`
-	PelangganID     int       `json:"pelangganId"`
+	PelangganID     int64     `json:"pelangganId,string"`
 	PelangganNama   string    `json:"pelangganNama"`
 	PelangganTelp   string    `json:"pelangganTelp"`
 	Subtotal        int       `json:"subtotal"`
@@ -21,9 +21,10 @@ type Transaksi struct {
 	Kembalian       int       `json:"kembalian"`
 	Status          string    `json:"status"`
 	Catatan         string    `json:"catatan"`
-	Kasir           string    `json:"kasir"`     // Legacy field - nama kasir
-	StaffID         *int      `json:"staffId"`   // ID staff yang melakukan transaksi (nullable untuk backward compatibility)
-	StaffNama       string    `json:"staffNama"` // Nama staff (denormalized untuk performa)
+	Kasir           string    `json:"kasir"`          // Legacy field - nama kasir
+	StaffID         *int64    `json:"staffId,string"` // ID staff yang melakukan transaksi (nullable untuk backward compatibility)
+	StaffNama       string    `json:"staffNama"`      // Nama staff (denormalized untuk performa)
+	Profit          int       `json:"profit"`         // Total Profit (Calculated)
 	CreatedAt       time.Time `json:"createdAt"`
 }
 
@@ -61,7 +62,7 @@ type TransaksiDetail struct {
 
 // CreateTransaksiRequest represents request to create a new transaction
 type CreateTransaksiRequest struct {
-	PelangganID     int                    `json:"pelangganId"`
+	PelangganID     int64                  `json:"pelangganId,string"`
 	PelangganNama   string                 `json:"pelangganNama"`
 	PelangganTelp   string                 `json:"pelangganTelp"`
 	Items           []TransaksiItemRequest `json:"items"`
@@ -73,8 +74,8 @@ type CreateTransaksiRequest struct {
 	DiskonPelanggan int                    `json:"diskonPelanggan"` // Diskon dari level pelanggan
 	Catatan         string                 `json:"catatan"`
 	Kasir           string                 `json:"kasir"`
-	StaffID         int                    `json:"staffId"`   // ID staff yang melakukan transaksi
-	StaffNama       string                 `json:"staffNama"` // Nama staff
+	StaffID         int64                  `json:"staffId,string"` // Use string to prevent JS precision loss!
+	StaffNama       string                 `json:"staffNama"`      // Nama staff
 	CreatedAt       time.Time              `json:"createdAt"`
 }
 
@@ -121,4 +122,14 @@ type TransaksiHistoryItem struct {
 	JumlahItem     int       `json:"jumlahItem"`
 	Status         string    `json:"status"`
 	Kasir          string    `json:"kasir"`
+}
+
+// TransaksiBatch tracks which batches were used in a transaction
+type TransaksiBatch struct {
+	ID          int       `json:"id"`
+	TransaksiID int       `json:"transaksiId"`
+	BatchID     string    `json:"batchId"`
+	ProdukID    int       `json:"produkId"`
+	QtyDiambil  float64   `json:"qtyDiambil"`
+	CreatedAt   time.Time `json:"createdAt"`
 }

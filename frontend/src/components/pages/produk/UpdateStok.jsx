@@ -230,6 +230,9 @@ const UpdateStok = () => {
     // Expiring batches state
     const [expiringBatches, setExpiringBatches] = useState([]);
     const [loadingExpiringBatches, setLoadingExpiringBatches] = useState(false);
+    const [warningCurrentPage, setWarningCurrentPage] = useState(1);
+    const [warningItemsPerPage, setWarningItemsPerPage] = useState(5); // Show 5 items per page for warning section
+    const [warningSearchTerm, setWarningSearchTerm] = useState('');
 
     // Delete expired product state
     const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
@@ -311,7 +314,13 @@ const UpdateStok = () => {
     // Handle page change
     const handlePageChange = (page) => {
         setCurrentPage(page);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        // Scroll ke bagian tabel Manajemen Stok Produk
+        setTimeout(() => {
+            const tableContainer = document.getElementById('manajemen-stok-table');
+            if (tableContainer) {
+                tableContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }, 100);
     };
 
     // Handle items per page change
@@ -427,8 +436,17 @@ const UpdateStok = () => {
 
             // JIKA MENGURANGI STOK: Tampilkan modal alasan kerugian
             if (type === 'kurang') {
-                // Hitung nilai kerugian otomatis: harga produk × jumlah
-                const calculatedLoss = selectedProduk.hargaBeli * jumlah;
+                // Hitung nilai kerugian otomatis
+                let calculatedLoss = 0;
+
+                // Cek apakah produk curah (gram) atau satuannya gram
+                // Jika ya, konversi gram ke kg karena harga beli per kg
+                if (selectedProduk.jenisProduk === 'curah' || selectedProduk.satuan === 'gram') {
+                    calculatedLoss = selectedProduk.hargaBeli * (jumlah / 1000);
+                } else {
+                    // Untuk produk satuan (pcs), hitung normal
+                    calculatedLoss = selectedProduk.hargaBeli * jumlah;
+                }
 
                 // Simpan data untuk digunakan setelah user memilih alasan
                 setPendingUpdateData({
@@ -543,14 +561,16 @@ const UpdateStok = () => {
     // Calculate remaining days until expiry
     const getRemainingDays = (expiryDate) => {
         if (!expiryDate) return 0;
-        const now = new Date();
+        const today = new Date();
+        today.setHours(0, 0, 0, 0); // Normalize to midnight
         const expiry = new Date(expiryDate);
-        const diffTime = expiry - now;
+        expiry.setHours(0, 0, 0, 0); // Normalize to midnight
+        const diffTime = expiry - today;
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
         return diffDays;
     };
 
-    // Enrich batches with product info
+    // Enrich batches with product info and apply filters
     const getExpiringBatchesWithProduct = () => {
         return expiringBatches.map(batch => {
             const produk = produks.find(p => p.id === batch.produkId);
@@ -561,13 +581,31 @@ const UpdateStok = () => {
         })
             .filter(batch => batch.produk !== null) // Only include batches with valid product
             .filter(batch => {
-                // Filter out expired batches (only show batches that are approaching expiry, not already expired)
-                const remainingDays = getRemainingDays(batch.tanggalKadaluarsa);
-                return remainingDays >= 0; // Only include batches that haven't expired yet
+                // Ensure we don't show zero-quantity batches (double-check backend logic)
+                return batch.qtyTersisa > 0;
+            })
+            .filter(batch => {
+                // Modified: Show ALL batches including expired ones (removed remainingDays >= 0 filter)
+                return true;
+            })
+            .filter(batch => {
+                if (!warningSearchTerm) return true;
+                const searchLower = warningSearchTerm.toLowerCase();
+                return (
+                    batch.produk.nama.toLowerCase().includes(searchLower) ||
+                    batch.id.toLowerCase().includes(searchLower)
+                );
             });
     };
 
     const expiringBatchesWithProduct = getExpiringBatchesWithProduct();
+
+    // Warning section pagination calculations
+    const totalWarningItems = expiringBatchesWithProduct.length;
+    const totalWarningPages = Math.ceil(totalWarningItems / warningItemsPerPage);
+    const warningStartIndex = (warningCurrentPage - 1) * warningItemsPerPage;
+    const warningEndIndex = Math.min(warningStartIndex + warningItemsPerPage, totalWarningItems);
+    const currentWarningItems = expiringBatchesWithProduct.slice(warningStartIndex, warningEndIndex);
 
     // Get days until expiry
     const getDaysUntilExpiry = (dateString) => {
@@ -591,10 +629,20 @@ const UpdateStok = () => {
         return expiryDate < today;
     };
 
-    // Handle delete expired product confirmation
-    const handleDeleteExpired = (produk) => {
-        saveScrollPosition(); // Simpan posisi scroll sebelum modal dibuka
-        setProdukToDelete(produk);
+    // Handle delete expired product confirmation - UPDATED to accept batch and produk logic mixed
+    // Actually we are deleting a specific batch or product stock?
+    // The previous logic used `produkToDelete`. We need to adapt if we deleting a specific BATCH or general stock.
+    // The UI is batch-based, but the API `updateStokIncrement` is product-based.
+    // However, existing `handleConfirmDeleteExpired` logic reduces product stock to 0.
+    // To support batch-specific deletion correctly, we might need a Batch API delete.
+    // But per user request: "remove batch... enter loss report".
+    // Reducing product stock by batch.qty will trigger FIFO reduction which conceptually removes the oldest batch first.
+    // If we assume the expired batch IS the oldest (FIFO), calling generic reduce stock is fine.
+
+    const handleDeleteExpired = (produk, batchId, qty) => {
+        saveScrollPosition();
+        // We store needed info. Reusing produkToDelete state but enriching it.
+        setProdukToDelete({ ...produk, batchIdToKill: batchId, qtyToKill: qty });
         setShowDeleteConfirmModal(true);
     };
 
@@ -603,19 +651,34 @@ const UpdateStok = () => {
         try {
             if (!produkToDelete) return;
 
-            // Set stock to 0 using UpdateStokIncrement with negative value
+            // Calculate loss value
+            let calculatedLoss = 0;
+            if (produkToDelete.jenisProduk === 'curah' || produkToDelete.satuan === 'gram') {
+                calculatedLoss = produkToDelete.hargaBeli * (produkToDelete.qtyToKill / 1000);
+            } else {
+                calculatedLoss = produkToDelete.hargaBeli * produkToDelete.qtyToKill;
+            }
+
+            // Ensure integer for API
+            calculatedLoss = Math.ceil(calculatedLoss);
+
+            console.log('[DELETE EXPIRED] Calculated loss:', calculatedLoss, 'for', produkToDelete.qtyToKill, 'items/grams at price', produkToDelete.hargaBeli);
+
+            // Set stock reduction
             const req = {
                 produkId: produkToDelete.id,
-                perubahan: -produkToDelete.stok, // Reduce stock to 0
-                jenis: 'manual',
-                keterangan: `Penghapusan stok produk kadaluarsa - ${produkToDelete.nama}`
+                perubahan: -produkToDelete.qtyToKill, // Reduce by specific batch quantity
+                jenis: 'pengurangan', // Changed from 'manual' to 'pengurangan' for Loss Report
+                keterangan: `Penghapusan stok kadaluarsa (Batch: ${produkToDelete.batchIdToKill?.substring(0, 8) || 'Unknown'})`,
+                tipeKerugian: 'kadaluarsa', // Critical for Loss Report (lowercase to match service map)
+                nilaiKerugian: calculatedLoss
             };
 
             await produkAPI.updateStokIncrement(req);
 
             // Refresh data
             await loadData();
-            toast.showSuccess(`Stok produk "${produkToDelete.nama}" berhasil dihapus!`);
+            toast.showSuccess(`Stok batch kadaluarsa untuk "${produkToDelete.nama}" berhasil dihapus dan dicatat sebagai kerugian!`);
             setShowDeleteConfirmModal(false);
             setProdukToDelete(null);
             setTimeout(() => {
@@ -653,6 +716,24 @@ const UpdateStok = () => {
         });
     };
 
+    // Format angka dengan pemisah ribuan (format Indonesia)
+    const formatNumber = (value) => {
+        if (value === null || value === undefined) return 0;
+        const num = Number(value);
+
+        // Jika angka adalah bilangan bulat
+        if (num % 1 === 0) {
+            // Format dengan pemisah ribuan (titik untuk format Indonesia)
+            return num.toLocaleString('id-ID', { maximumFractionDigits: 0 });
+        }
+
+        // Jika memiliki desimal, tampilkan maksimal 1 desimal dengan pemisah ribuan
+        return num.toLocaleString('id-ID', {
+            minimumFractionDigits: 1,
+            maximumFractionDigits: 1
+        });
+    };
+
     // Format stok - untuk produk curah max 2 desimal, untuk satuan tidak ada desimal
     const formatStok = (stok, jenisProduk) => {
         if (stok === null || stok === undefined) return 0;
@@ -660,9 +741,9 @@ const UpdateStok = () => {
         // Default ke 'satuan' jika jenisProduk tidak ada atau invalid
         const jenisValid = jenisProduk || 'satuan';
 
-        // Jika produk curah, format dengan 2 desimal
+        // Jika produk curah, format dengan 1 desimal (bukan 2)
         if (jenisValid === 'curah') {
-            return Number(stok).toFixed(2);
+            return formatNumber(stok);
         }
 
         // Jika produk satuan atau default, format tanpa desimal
@@ -826,18 +907,45 @@ const UpdateStok = () => {
                     </div>
 
                     {/* Expiring Batches Warning - Batch-Based Format */}
-                    {!loadingExpiringBatches && expiringBatchesWithProduct.length > 0 && (
-                        <div className="bg-gradient-to-r from-orange-50 to-red-50 border-1 border-orange-400 rounded-2xl shadow-lg overflow-hidden">
+                    {!loadingExpiringBatches && (expiringBatches.length > 0 || warningSearchTerm) && (
+                        <div className="bg-gradient-to-r from-orange-50 to-red-50 border-1 border-orange-400 rounded-2xl shadow-lg overflow-hidden mb-8">
                             <div className="p-6">
-                                <div className="flex items-center mb-4">
-                                    <div className="bg-orange-500 p-3 rounded-xl mr-4">
-                                        <FontAwesomeIcon icon={faExclamationTriangle} className="text-white text-2xl" />
+                                <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
+                                    <div className="flex items-center">
+                                        <div className="bg-orange-500 p-3 rounded-xl mr-4 shadow-lg shadow-orange-200">
+                                            <FontAwesomeIcon icon={faExclamationTriangle} className="text-white text-2xl" />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-xl font-bold text-orange-800">Peringatan Batch Mendekati Kadaluarsa</h3>
+                                            <p className="text-orange-700 text-sm mt-1">
+                                                {expiringBatchesWithProduct.length} batch ditemukan {warningSearchTerm && `untuk "${warningSearchTerm}"`}
+                                            </p>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <h3 className="text-xl font-bold text-orange-800">Peringatan Batch Mendekati Kadaluarsa</h3>
-                                        <p className="text-orange-700 text-sm mt-1">
-                                            {expiringBatchesWithProduct.length} batch mendekati tanggal kadaluarsa
-                                        </p>
+
+                                    {/* Search Filter for Warning Section */}
+                                    <div className="relative min-w-[300px]">
+                                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                            <FontAwesomeIcon icon={faSearch} className="text-orange-400 text-sm" />
+                                        </div>
+                                        <input
+                                            type="text"
+                                            placeholder="Cari Produk atau BatchID..."
+                                            value={warningSearchTerm}
+                                            onChange={(e) => {
+                                                setWarningSearchTerm(e.target.value);
+                                                setWarningCurrentPage(1);
+                                            }}
+                                            className="block w-full pl-10 pr-3 py-2.5 bg-white border border-orange-200 text-orange-900 text-sm rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-all outline-none placeholder-orange-300"
+                                        />
+                                        {warningSearchTerm && (
+                                            <button
+                                                onClick={() => setWarningSearchTerm('')}
+                                                className="absolute inset-y-0 right-0 pr-3 flex items-center text-orange-400 hover:text-orange-600 transition-colors"
+                                            >
+                                                <FontAwesomeIcon icon={faTimes} className="text-sm" />
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
 
@@ -855,7 +963,7 @@ const UpdateStok = () => {
 
                                     {/* List Items */}
                                     <div className="divide-y divide-orange-100">
-                                        {expiringBatchesWithProduct.slice(0, 15).map((batch, index) => {
+                                        {currentWarningItems.map((batch, index) => {
                                             const remainingDays = getRemainingDays(batch.tanggalKadaluarsa);
                                             const isExpired = remainingDays < 0;
                                             const isUrgent = !isExpired && remainingDays <= 7;
@@ -915,9 +1023,9 @@ const UpdateStok = () => {
                                                                 batch.qtyTersisa <= 20 ? 'text-yellow-600' :
                                                                     'text-green-600'
                                                                 }`}>
-                                                                {batch.qtyTersisa || 0}
+                                                                {formatNumber(batch.qtyTersisa)}
                                                             </span>
-                                                            <span className="text-xs text-gray-500">/{batch.qty}</span>
+                                                            <span className="text-xs text-gray-500">/{formatNumber(batch.qty)}</span>
                                                         </div>
                                                     </div>
 
@@ -934,9 +1042,14 @@ const UpdateStok = () => {
                                                     {/* Sisa Hari */}
                                                     <div className="col-span-1 flex items-center justify-center">
                                                         {isExpired ? (
-                                                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${getBatchStatusStyle(batch.status)}`}>
-                                                                {getBatchStatusLabel(batch.status)}
-                                                            </span>
+                                                            <button
+                                                                onClick={() => handleDeleteExpired(batch.produk, batch.id, batch.qtyTersisa)}
+                                                                className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-bold border border-red-200 bg-red-100 text-red-800 hover:bg-red-200 hover:border-red-300 transition-colors cursor-pointer shadow-sm active:scale-95`}
+                                                                title="Klik untuk hapus dan catat kerugian"
+                                                            >
+                                                                <FontAwesomeIcon icon={faTimes} className="mr-1 text-xs" />
+                                                                EXP
+                                                            </button>
                                                         ) : (
                                                             <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-bold ${isUrgent
                                                                 ? 'bg-red-500 text-white'
@@ -954,14 +1067,95 @@ const UpdateStok = () => {
                                         })}
                                     </div>
 
-                                    {/* List Footer */}
-                                    {expiringBatchesWithProduct.length > 15 && (
-                                        <div className="px-4 py-3 bg-orange-50 border-t border-orange-200 text-center">
-                                            <p className="text-sm text-orange-700 font-medium">
-                                                Menampilkan 15 dari {expiringBatchesWithProduct.length} batch
-                                            </p>
+                                    {/* List Footer with Pagination */}
+                                    <div className="px-6 py-4 bg-orange-50 border-t border-orange-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+                                        <div className="flex items-center space-x-4">
+                                            <div className="text-xs font-semibold text-orange-800 uppercase tracking-wider">
+                                                Menampilkan <span>{warningStartIndex + 1} - {warningEndIndex}</span> dari <span>{totalWarningItems}</span> Batch
+                                            </div>
+
+                                            <div className="flex items-center space-x-2">
+                                                <span className="text-[10px] font-bold text-orange-700 uppercase tracking-widest">Tampilkan:</span>
+                                                <select
+                                                    value={warningItemsPerPage}
+                                                    onChange={(e) => {
+                                                        setWarningItemsPerPage(Number(e.target.value));
+                                                        setWarningCurrentPage(1);
+                                                    }}
+                                                    className="bg-white border border-orange-200 text-orange-700 text-[10px] font-bold rounded-lg focus:ring-orange-500 focus:border-orange-500 block p-1 px-2 cursor-pointer outline-none hover:border-orange-400 transition-colors"
+                                                >
+                                                    <option value={5}>5</option>
+                                                    <option value={10}>10</option>
+                                                    <option value={20}>20</option>
+                                                    <option value={50}>50</option>
+                                                </select>
+                                            </div>
                                         </div>
-                                    )}
+
+                                        {totalWarningPages > 1 && (
+                                            <div className="flex items-center space-x-1 overflow-x-auto pb-1 max-w-full">
+                                                <button
+                                                    onClick={() => setWarningCurrentPage(prev => Math.max(1, prev - 1))}
+                                                    disabled={warningCurrentPage === 1}
+                                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 flex items-center space-x-1 ${warningCurrentPage === 1
+                                                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50'
+                                                        : 'bg-white text-orange-600 hover:bg-orange-500 hover:text-white border border-orange-300 shadow-sm active:scale-95'
+                                                        }`}
+                                                >
+                                                    <FontAwesomeIcon icon={faChevronDown} className="rotate-90 mr-1" />
+                                                    Sebelumnya
+                                                </button>
+
+                                                <div className="hidden md:flex items-center space-x-1">
+                                                    {[...Array(totalWarningPages)].map((_, i) => {
+                                                        const pageNum = i + 1;
+                                                        // Show limited pages if too many
+                                                        if (
+                                                            totalWarningPages > 5 &&
+                                                            pageNum !== 1 &&
+                                                            pageNum !== totalWarningPages &&
+                                                            Math.abs(pageNum - warningCurrentPage) > 1
+                                                        ) {
+                                                            if (pageNum === 2 || pageNum === totalWarningPages - 1) {
+                                                                return <span key={pageNum} className="text-orange-400 font-bold px-1 select-none">...</span>;
+                                                            }
+                                                            return null;
+                                                        }
+
+                                                        return (
+                                                            <button
+                                                                key={pageNum}
+                                                                onClick={() => setWarningCurrentPage(pageNum)}
+                                                                className={`w-8 h-8 rounded-lg text-xs font-bold transition-all duration-200 border ${warningCurrentPage === pageNum
+                                                                    ? 'bg-orange-500 text-white border-orange-500 shadow-md transform scale-110 z-10'
+                                                                    : 'bg-white text-orange-600 border-orange-200 hover:border-orange-400 hover:bg-orange-50 shadow-sm hover:scale-105'
+                                                                    }`}
+                                                            >
+                                                                {pageNum}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+
+                                                {/* Mobile simplified pagination */}
+                                                <div className="md:hidden flex items-center px-4 bg-white border border-orange-200 rounded-lg text-xs font-bold text-orange-600 h-8 shadow-sm">
+                                                    Hal <span className="mx-1.5 text-orange-800 underline flex-shrink-0">{warningCurrentPage}</span> / {totalWarningPages}
+                                                </div>
+
+                                                <button
+                                                    onClick={() => setWarningCurrentPage(prev => Math.min(totalWarningPages, prev + 1))}
+                                                    disabled={warningCurrentPage === totalWarningPages}
+                                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 flex items-center space-x-1 ${warningCurrentPage === totalWarningPages
+                                                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50'
+                                                        : 'bg-white text-orange-700 hover:bg-orange-500 hover:text-white border border-orange-300 shadow-sm active:scale-95'
+                                                        }`}
+                                                >
+                                                    Selanjutnya
+                                                    <FontAwesomeIcon icon={faChevronDown} className="-rotate-90 ml-1" />
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
 
                                 {/* Additional Information */}
@@ -989,7 +1183,7 @@ const UpdateStok = () => {
             </div>
 
             {/* Container 2: Search, Filter & Table */}
-            <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden mb-8">
+            <div id="manajemen-stok-table" className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden mb-8">
                 <div className="bg-green-700 border-b border-green-500 px-6 py-4">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-3">
@@ -1273,7 +1467,11 @@ const UpdateStok = () => {
                                     {/* Jumlah Update */}
                                     <div>
                                         <label className="block text-xs font-semibold text-gray-700 mb-1">
-                                            Jumlah Perubahan Stok
+                                            Jumlah Perubahan Stok <span className="text-gray-500 font-normal">
+                                                {selectedProduk.jenisProduk === 'curah' || selectedProduk.satuan === 'gram'
+                                                    ? '(dalam gram)'
+                                                    : `(${selectedProduk.satuan || 'pcs'})`}
+                                            </span>
                                         </label>
                                         <input
                                             type="text"
@@ -1284,55 +1482,7 @@ const UpdateStok = () => {
                                         />
                                     </div>
 
-                                    {/* Supplier */}
-                                    <div>
-                                        <label className="block text-xs font-semibold text-gray-700 mb-1">
-                                            Supplier
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={supplier}
-                                            onChange={(e) => setSupplier(e.target.value)}
-                                            placeholder="Nama supplier (opsional)"
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white text-sm"
-                                        />
-                                    </div>
 
-                                    {/* Masa Simpan (only for tambah) */}
-                                    {updateType === 'tambah' && (
-                                        <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                                            <label className="block text-xs font-semibold text-green-800 mb-1 flex items-center">
-                                                <FontAwesomeIcon icon={faCalendarDay} className="mr-2" />
-                                                Masa Simpan (Hari) <span className="text-red-500 ml-1">*</span>
-                                            </label>
-                                            <input
-                                                type="number"
-                                                value={masaSimpanHari}
-                                                onChange={(e) => setMasaSimpanHari(e.target.value)}
-                                                min="1"
-                                                max="365"
-                                                placeholder="Contoh: 7 untuk sayuran, 30 untuk buah"
-                                                className="w-full px-3 py-2 border border-green-300 rounded-lg focus:ring-1 focus:ring-green-500 focus:border-green-500 bg-white text-sm"
-                                            />
-                                            <p className="text-xs text-green-700 mt-1">
-                                                Produk akan kadaluarsa setelah {masaSimpanHari || '0'} hari dari tanggal restok
-                                            </p>
-                                        </div>
-                                    )}
-
-                                    {/* Keterangan */}
-                                    <div>
-                                        <label className="block text-xs font-semibold text-gray-700 mb-1">
-                                            Keterangan
-                                        </label>
-                                        <textarea
-                                            value={keterangan}
-                                            onChange={(e) => setKeterangan(e.target.value)}
-                                            rows="2"
-                                            placeholder="Tambahkan catatan untuk perubahan stok ini..."
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white text-sm resize-none"
-                                        ></textarea>
-                                    </div>
                                 </div>
 
                                 {/* Preview */}
@@ -1461,8 +1611,8 @@ const UpdateStok = () => {
                                                                     </span>
                                                                 </td>
                                                                 <td className="px-3 py-2 text-center">
-                                                                    <span className="font-semibold text-gray-800">{batch.qtyTersisa}</span>
-                                                                    <span className="text-gray-500">/{batch.qty}</span>
+                                                                    <span className="font-semibold text-gray-800">{Number(batch.qtyTersisa || 0).toFixed(1)}</span>
+                                                                    <span className="text-gray-500">/{Number(batch.qty || 0).toFixed(1)}</span>
                                                                 </td>
                                                                 <td className="px-3 py-2 text-center text-gray-700">
                                                                     {formatDate(batch.tanggalRestok)}
@@ -1701,11 +1851,17 @@ const UpdateStok = () => {
                                 Produk: {pendingUpdateData.produk.nama}
                             </p>
                             <div className="mt-2 text-red-100 text-sm">
-                                <span>Harga Beli: Rp {pendingUpdateData.produk.hargaBeli.toLocaleString('id-ID')}</span>
+                                <span>Harga Beli: Rp {pendingUpdateData.produk.hargaBeli.toLocaleString('id-ID')}/{pendingUpdateData.produk.satuan === 'gram' || pendingUpdateData.produk.jenisProduk === 'curah' ? 'kg' : pendingUpdateData.produk.satuan}</span>
                                 <span className="mx-2">×</span>
-                                <span>Jumlah: {pendingUpdateData.jumlah}</span>
+                                <span>Jumlah: {pendingUpdateData.jumlah} {pendingUpdateData.produk.satuan}</span>
                                 <span className="mx-2">=</span>
-                                <span className="font-bold">Rp {(pendingUpdateData.produk.hargaBeli * pendingUpdateData.jumlah).toLocaleString('id-ID')}</span>
+                                <span className="font-bold">
+                                    Rp {(
+                                        (pendingUpdateData.produk.jenisProduk === 'curah' || pendingUpdateData.produk.satuan === 'gram')
+                                            ? (pendingUpdateData.produk.hargaBeli * (pendingUpdateData.jumlah / 1000))
+                                            : (pendingUpdateData.produk.hargaBeli * pendingUpdateData.jumlah)
+                                    ).toLocaleString('id-ID')}
+                                </span>
                             </div>
                         </div>
 
@@ -1746,7 +1902,7 @@ const UpdateStok = () => {
                                     />
                                 </div>
                                 <p className="text-xs text-gray-500 mt-1">
-                                    Dihitung otomatis: Harga Beli × Jumlah
+                                    Dihitung otomatis: Harga Beli × Jumlah {(pendingUpdateData?.produk?.jenisProduk === 'curah' || pendingUpdateData?.produk?.satuan === 'gram') ? '(konversi ke kg)' : ''}
                                 </p>
                             </div>
 

@@ -239,7 +239,6 @@ const TambahKurangiPoinModal = ({ isOpen, onClose, pelanggan, mode, showToast })
             );
             onClose(true);
         } catch (error) {
-            console.error('Error updating points:', error);
             showToast(
                 `Gagal ${mode} poin: ${error.message || error}`,
                 'error'
@@ -462,7 +461,6 @@ const PengaturanSistemPoin = ({ isOpen, onClose, onSave, settings, showToast }) 
             showToast('Pengaturan berhasil disimpan!', 'success');
             onClose();
         } catch (error) {
-            console.error('Error saving settings:', error);
             showToast('Gagal menyimpan pengaturan: ' + error.message, 'error');
         } finally {
             setLoading(false);
@@ -718,10 +716,8 @@ const SistemPoin = () => {
     }, []);
 
     // Filter pelanggan data when search term changes
+    // Filter pelanggan data when search term changes
     useEffect(() => {
-        console.log('Search term changed:', searchTerm);
-        console.log('Pelanggan data:', pelangganData);
-
         if (searchTerm.trim() === '') {
             setFilteredPelanggan(pelangganData);
         } else {
@@ -734,7 +730,6 @@ const SistemPoin = () => {
                     id.toString().toLowerCase().includes(searchTerm.toLowerCase())
                 );
             });
-            console.log('Filtered results:', filtered);
             setFilteredPelanggan(filtered);
         }
     }, [searchTerm, pelangganData]);
@@ -742,16 +737,13 @@ const SistemPoin = () => {
     const loadPelanggan = async () => {
         try {
             setLoading(true);
-            console.log('Loading pelanggan data...');
             const data = await pelangganAPI.getAll();
-            console.log('Loaded pelanggan data:', data);
 
             // Ensure data is an array
             const pelangganArray = Array.isArray(data) ? data : [];
             setPelangganData(pelangganArray);
             setFilteredPelanggan(pelangganArray);
         } catch (error) {
-            console.error('Failed to load pelanggan:', error);
             showToast('Gagal memuat data pelanggan: ' + error.message, 'error');
             setPelangganData([]);
             setFilteredPelanggan([]);
@@ -773,7 +765,6 @@ const SistemPoin = () => {
                 });
             }
         } catch (error) {
-            console.error('Failed to load settings:', error);
             showToast('Gagal memuat pengaturan sistem poin', 'warning');
         }
     };

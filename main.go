@@ -3,17 +3,23 @@ package main
 import (
 	"context"
 	"embed"
+	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"runtime/debug"
 	"syscall"
 	"time"
+	"unsafe"
 
-	customlogger "ritel-app/internal/logger"
 	"ritel-app/internal/config"
 	"ritel-app/internal/container"
 	"ritel-app/internal/database"
 	httpserver "ritel-app/internal/http"
+	customlogger "ritel-app/internal/logger"
+	"ritel-app/internal/repository"
 	"ritel-app/internal/sync"
 
 	"github.com/wailsapp/wails/v2"
@@ -23,6 +29,49 @@ import (
 
 //go:embed all:frontend/dist
 var assets embed.FS
+
+const (
+	logFileName = "startup_debug.log"
+)
+
+// showFatalError shows a native Windows Message Box for critical errors
+func showFatalError(title, message string) {
+	// Only show in GUI mode or if specifically needed
+	messagePtr, _ := syscall.UTF16PtrFromString(message)
+	titlePtr, _ := syscall.UTF16PtrFromString(title)
+
+	// MB_OK (0x00000000) | MB_ICONERROR (0x00000010)
+	const MB_OK = 0x00000000
+	const MB_ICONERROR = 0x00000010
+
+	user32 := syscall.NewLazyDLL("user32.dll")
+	messageBox := user32.NewProc("MessageBoxW")
+	messageBox.Call(0, uintptr(unsafe.Pointer(messagePtr)), uintptr(unsafe.Pointer(titlePtr)), uintptr(MB_OK|MB_ICONERROR))
+}
+
+// setupInitialLogging prepares a log file for diagnostic purposes
+func setupInitialLogging() (func(), error) {
+	exePath, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	exeDir := filepath.Dir(exePath)
+	logPath := filepath.Join(exeDir, logFileName)
+
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil {
+		return nil, err
+	}
+
+	// MultiWriter to both file and stdout
+	mw := io.MultiWriter(os.Stdout, logFile)
+	log.SetOutput(mw)
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+
+	return func() {
+		logFile.Close()
+	}, nil
+}
 
 // Check if running in web-only mode (no Wails desktop)
 func isWebOnlyMode() bool {
@@ -38,54 +87,139 @@ func isWebOnlyMode() bool {
 
 func main() {
 	// Re-enable logging for initialization
-	log.SetOutput(os.Stdout)
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	closeLog, err := setupInitialLogging()
+	if err != nil {
+		// If we can't even setup logging, fallback to stdout
+		log.SetOutput(os.Stdout)
+		log.Printf("Warning: Failed to setup log file: %v", err)
+	} else {
+		defer closeLog()
+	}
+
+	// Catch panics and log them
+	defer func() {
+		if r := recover(); r != nil {
+			errStr := fmt.Sprintf("A fatal panic occurred: %v\n\nStack Trace:\n%s", r, debug.Stack())
+			log.Println("[PANIC]", errStr)
+			showFatalError("Ritel-App Fatal Error", fmt.Sprintf("A critical error occurred while starting the application.\n\nPlease check %s for details.\n\nError: %v", logFileName, r))
+			os.Exit(1)
+		}
+	}()
 
 	webOnly := isWebOnlyMode()
-
-	log.Println("========================================")
-	if webOnly {
-		log.Println("🌐 RITEL-APP STARTING (WEB-ONLY MODE)")
-	} else {
-		log.Println("🚀 RITEL-APP STARTING")
+	if os.Getenv("APP_MODE") == "" {
+		if webOnly {
+			_ = os.Setenv("APP_MODE", "web")
+		} else {
+			_ = os.Setenv("APP_MODE", "desktop")
+		}
 	}
-	log.Println("========================================")
 
 	// STEP 1: Initialize database FIRST
-	log.Println("[INIT] Initializing database...")
 	if err := database.InitDB(); err != nil {
-		log.Fatalf("Failed to initialize database: %v", err)
+		errMsg := fmt.Sprintf("Failed to initialize database: %v", err)
+		showFatalError("Database Initialization Error", errMsg+"\n\nTry running the application as administrator if this is the first run.")
+		os.Exit(1)
 	}
-	log.Println("[INIT] Database initialized successfully")
+
+	// STEP 1.1: Seed database with default data if empty
+	database.SeedDatabase(database.DB)
+
+	// STEP 1.2: Run auto-migrations (will update database schema to latest version)
+	if err := database.RunMigrations(database.DB); err != nil {
+		errMsg := fmt.Sprintf("Failed to run database migrations: %v", err)
+		showFatalError("Database Migration Error", errMsg+"\n\nThe application cannot continue without updating the database schema.")
+		os.Exit(1)
+	}
+
+	// STEP 1.2a: Run migrations on Remote Postgres DB (if in Dual Mode)
+	// STEP 1.2a: Force Fix Postgres Schema (Nuclear Option)
+	if database.UseDualMode && database.DBPostgres != nil {
+		log.Println("[MAIN] ☢️  Executing Critical Schema Fixes on Remote DB...")
+
+		// 1. Fix Users ID (int4 -> int8)
+		// Using 'USING id::bigint' to strictly force conversion
+		if _, err := database.DBPostgres.Exec("ALTER TABLE IF EXISTS users ALTER COLUMN id TYPE BIGINT USING id::bigint"); err != nil {
+			log.Printf("[MAIN] ⚠️  Failed to fix users ID: %v", err)
+		} else {
+			log.Println("[MAIN] ✅ Users table ID fixed to BIGINT.")
+		}
+
+		// 1a. VERIFY Fix
+		var dataType string
+		if err := database.DBPostgres.QueryRow("SELECT data_type FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'id'").Scan(&dataType); err == nil {
+			log.Printf("[MAIN] 🧐 VERIFICATION: users.id type is now '%s'", dataType)
+		}
+
+		// 2. Fix Transaksi Batch IDs
+		if _, err := database.DBPostgres.Exec("ALTER TABLE IF EXISTS transaksi_batch ALTER COLUMN id TYPE BIGINT USING id::bigint"); err != nil {
+			log.Printf("[MAIN] ⚠️  Failed to fix transaksi_batch ID: %v", err)
+		}
+		if _, err := database.DBPostgres.Exec("ALTER TABLE IF EXISTS transaksi_batch ALTER COLUMN transaksi_id TYPE BIGINT USING transaksi_id::bigint"); err != nil {
+			log.Printf("[MAIN] ⚠️  Failed to fix transaksi_batch transaksi_id: %v", err)
+		}
+
+		// 2.5 CLEANUP JUNK SYNC ITEMS (Backup tables)
+		if _, err := database.DB.Exec("DELETE FROM sync_queue WHERE table_name LIKE 'transaksi_item_backup_%' OR table_name LIKE 'backup_%'"); err != nil {
+			log.Printf("[MAIN] ⚠️  Failed to cleanup sync queue junk: %v", err)
+		} else {
+			log.Println("[MAIN] 🧹 Cleaned up junk backup items from sync queue.")
+		}
+
+		// 3. RESET FAILED SYNC ITEMS (Critical for resolving FK dependency jams)
+		// If parents failed before, they block children. We must retry EVERYTHING now that schema is fixed.
+		if _, err := database.DB.Exec("UPDATE sync_queue SET status = 'pending', retry_count = 0 WHERE status = 'failed'"); err != nil {
+			log.Printf("[MAIN] ⚠️  Failed to reset sync queue: %v", err)
+		} else {
+			log.Println("[MAIN] 🔄 Reset 'failed' sync items to 'pending' for retry.")
+		}
+	}
+
+	// STEP 1.3: Run printer settings migration (fix invalid paperWidth from old versions)
+	printerRepo := repository.NewPrinterRepository()
+	printerRepo.FixInvalidPaperWidth()
 
 	// STEP 1.5: Initialize Sync Engine if enabled
 	syncConfig := config.GetSyncModeConfig()
 	if syncConfig.Enabled {
-		log.Println("[INIT] Initializing Sync Engine...")
-		if err := sync.InitSyncEngine(syncConfig.SQLiteDSN, syncConfig.PostgresDSN); err != nil {
-			log.Printf("[INIT] ⚠ Warning: Failed to initialize Sync Engine: %v", err)
-			log.Println("[INIT] Application will continue without sync capability")
-		} else {
-			log.Println("[INIT] ✓ Sync Engine initialized successfully")
+		if err := sync.InitSyncEngine(syncConfig.SQLiteDSN, syncConfig.PostgresDSN); err == nil {
+			// Connect SmartManager to Sync Engine (if SmartManager exists)
+			if database.SmartManager != nil && sync.Engine != nil {
+				database.SmartManager.SetSyncQueueFunc(sync.Engine.QueueSync)
+			}
 
 			// Setup sync engine shutdown
 			defer func() {
 				if sync.Engine != nil {
-					log.Println("[SHUTDOWN] Stopping Sync Engine...")
 					sync.Engine.Stop()
-					log.Println("[SHUTDOWN] ✓ Sync Engine stopped")
+				}
+			}()
+
+			// Trigger Initial Sync if needed (Push Desktop -> Web)
+			go func() {
+				// Wait a bit for everything to settle
+				time.Sleep(2 * time.Second)
+				log.Println("[SYNC] 🔄 FORCING INITIAL SYNC RETRY...")
+
+				// FORCE RESET: Clear the flag so it runs again
+				if database.DB != nil {
+					_, _ = database.DB.Exec("DELETE FROM sync_meta WHERE key = 'initial_sync_completed'")
+				}
+
+				if sync.Engine != nil {
+					// Dump pending queue stats for diagnostics
+					sync.Engine.DumpQueueStats()
+
+					if err := sync.Engine.TriggerInitialSync(false); err != nil {
+						log.Printf("[SYNC] Failed to trigger initial sync: %v", err)
+					}
 				}
 			}()
 		}
-	} else {
-		log.Println("[INIT] Sync Mode disabled (using standard database mode)")
 	}
 
 	// STEP 2: Create SERVICE CONTAINER (shared by both Wails & HTTP)
-	log.Println("[INIT] Initializing service container...")
 	services := container.NewServiceContainer()
-	log.Println("[INIT] Service container initialized")
-
 	// STEP 3: Create Wails app and inject services
 	app := NewApp()
 	app.SetServices(services)
@@ -93,20 +227,8 @@ func main() {
 	// STEP 4: Check if web server is enabled
 	serverConfig := config.GetServerConfig()
 
-	// In development mode (wails dev), always enable HTTP server
-	// because the frontend runs in a browser that needs HTTP API
-	if !serverConfig.Enabled {
-		log.Println("[INFO] WEB_ENABLED=false, but checking if we should auto-enable for dev mode...")
-		// Auto-enable if running in dev mode (check if frontend dev server might be running)
-		serverConfig.Enabled = true
-		log.Println("[INFO] Auto-enabling HTTP server for development compatibility")
-	}
-
 	var httpServer *httpserver.Server
 	if serverConfig.Enabled {
-		log.Println("========================================")
-		log.Println("🌐 WEB SERVER ENABLED")
-		log.Println("========================================")
 
 		// Create HTTP server
 		httpServer = httpserver.NewServer(services, serverConfig)
@@ -120,9 +242,7 @@ func main() {
 		defer func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			if err := httpServer.Shutdown(ctx); err != nil {
-				log.Printf("HTTP server shutdown error: %v", err)
-			}
+			httpServer.Shutdown(ctx)
 		}()
 
 		// Handle OS signals for graceful shutdown
@@ -130,7 +250,6 @@ func main() {
 		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 		go func() {
 			<-sigChan
-			log.Println("\n[SHUTDOWN] Received shutdown signal")
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			if httpServer != nil {
@@ -143,30 +262,15 @@ func main() {
 
 	// STEP 5: Run application
 	if webOnly {
-		// WEB-ONLY MODE: Just keep the HTTP server running
-		log.Println("========================================")
-		log.Println("🌐 RUNNING IN WEB-ONLY MODE")
-		log.Println("========================================")
-		log.Println("Frontend: http://localhost:5173 (run 'cd frontend && npm run dev')")
-		log.Println("API: http://localhost:8080/api")
-		log.Println("Health: http://localhost:8080/health")
-		log.Println("")
-		log.Println("Press Ctrl+C to stop the server...")
-
 		// Block until signal received
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 		<-sigChan
 
-		log.Println("\n[SHUTDOWN] Received shutdown signal")
 	} else {
-		// DESKTOP MODE: Run Wails application (BLOCKING)
-		log.Println("========================================")
-		log.Println("🖥️  STARTING DESKTOP APP (WAILS)")
-		log.Println("========================================")
-
+		os.Setenv("WEBVIEW2_USER_DATA_FOLDER", filepath.Join(os.TempDir(), "Ritel-App-v1.0.1"))
 		err := wails.Run(&options.App{
-			Title:  "Ritel-App",
+			Title:  "Ritel-App v1.0.1",
 			Width:  1200,
 			Height: 700,
 			AssetServer: &assetserver.Options{
@@ -186,12 +290,8 @@ func main() {
 
 		if err != nil {
 			log.SetOutput(os.Stdout)
-			log.Printf("Error: %v", err)
 		}
 	}
 
 	log.SetOutput(os.Stdout)
-	log.Println("========================================")
-	log.Println("👋 APPLICATION SHUTDOWN COMPLETE")
-	log.Println("========================================")
 }

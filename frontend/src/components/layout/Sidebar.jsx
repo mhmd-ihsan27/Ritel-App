@@ -26,7 +26,8 @@ import {
     faFileAlt,
     faSlidersH,
     faPlug,
-    faUserCog
+    faUserCog,
+    faSync
 } from '@fortawesome/free-solid-svg-icons';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -217,6 +218,7 @@ const Sidebar = ({ currentPage, showPage, menuOpen, toggleMenuSection }) => {
                     <MenuItem page="pengaturan-devices" icon={faPrint} label="Devices & Printer" isActive={currentPage === 'pengaturan-devices'} />
                     <MenuItem page="hardware-settings" icon={faPlug} label="Hardware Scanner" isActive={currentPage === 'hardware-settings'} />
                     <MenuItem page="pengaturan-struk" icon={faFileAlt} label="Format Struk" isActive={currentPage === 'pengaturan-struk'} />
+                    <MenuItem page="pengaturan-sync" icon={faSync} label="Sinkronisasi Data" isActive={currentPage === 'pengaturan-sync'} />
                     {/* <MenuItem page="pengaturan-umum" icon={faSlidersH} label="Pengaturan Umum" isActive={currentPage === 'pengaturan-umum'} /> */}
                 </MenuSection>
             </div>

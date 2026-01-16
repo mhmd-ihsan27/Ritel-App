@@ -27,6 +27,7 @@ func (s *SettingsService) GetPoinSettings() (*models.PoinSettings, error) {
 
 // UpdatePoinSettings updates point system settings dengan validasi lengkap
 func (s *SettingsService) UpdatePoinSettings(req *models.UpdatePoinSettingsRequest) (*models.PoinSettings, error) {
+	fmt.Printf("[SETTINGS SERVICE] Received Update Request: %+v\n", req)
 	// VALIDASI LENGKAP
 	if req.PointValue <= 0 {
 		return nil, fmt.Errorf("nilai poin harus lebih besar dari 0")

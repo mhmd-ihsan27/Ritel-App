@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os/exec"
@@ -21,6 +22,16 @@ func NewPrinterService() *PrinterService {
 		repo:             repository.NewPrinterRepository(),
 		transaksiService: NewTransaksiService(),
 	}
+}
+
+// EnsurePrintSettingsSchema makes sure the print_settings table has all required columns
+func (s *PrinterService) EnsurePrintSettingsSchema() error {
+	return s.repo.InitPrintSettingsTable()
+}
+
+// SetDefaultPrinter updates only the default printer name in settings
+func (s *PrinterService) SetDefaultPrinter(printerName string) error {
+	return s.repo.SetDefaultPrinter(printerName)
 }
 
 // ===============================
@@ -203,8 +214,14 @@ func applyLeftMarginToSection(text string, marginSpaces int) string {
 // - printer_service_other.go (for Linux/macOS)
 
 // GetInstalledPrinters returns a list of installed printers on the system
-func (s *PrinterService) GetInstalledPrinters() ([]*models.PrinterInfo, error) {
-	var printers []*models.PrinterInfo
+func (s *PrinterService) GetInstalledPrinters() (printers []*models.PrinterInfo, err error) {
+	// Panic Recovery
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[PRINTER] 💥 PANIC in GetInstalledPrinters: %v", r)
+			err = fmt.Errorf("printer system error: %v", r)
+		}
+	}()
 
 	switch runtime.GOOS {
 	case "windows":
@@ -224,39 +241,68 @@ func (s *PrinterService) GetInstalledPrinters() ([]*models.PrinterInfo, error) {
 func (s *PrinterService) getWindowsPrinters() []*models.PrinterInfo {
 	var printers []*models.PrinterInfo
 
-	// PowerShell command to get printers
-	cmd := exec.Command("powershell", "-Command", "Get-Printer | Select-Object Name, Type, PortName, PrinterStatus | ConvertTo-Json")
+	// PowerShell command to get printers (robust JSON output)
+	cmd := exec.Command("powershell", "-NoProfile", "-Command",
+		"Get-Printer | Select-Object Name, Type, PortName, PrinterStatus | ConvertTo-Json -Depth 3")
 	output, err := cmd.Output()
 	if err != nil {
-		log.Printf("Error getting Windows printers: %v", err)
 		// Fallback to wmic
 		return s.getWindowsPrintersWMIC()
 	}
 
-	// Parse JSON output
-	outputStr := string(output)
-	if outputStr == "" {
+	// Proper JSON parsing: handle array or single object
+	type psPrinter struct {
+		Name          string `json:"Name"`
+		Type          string `json:"Type"`
+		PortName      string `json:"PortName"`
+		PrinterStatus string `json:"PrinterStatus"`
+	}
+
+	var arr []psPrinter
+	var one psPrinter
+	data := strings.TrimSpace(string(output))
+	if data == "" {
 		return printers
 	}
 
-	// Simple parsing (in production, use proper JSON parsing)
-	lines := strings.Split(outputStr, "\n")
-	for _, line := range lines {
-		if strings.Contains(line, "Name") {
-			name := strings.TrimSpace(strings.Split(line, ":")[1])
-			name = strings.Trim(name, "\",")
-
-			printerType := s.detectPrinterType(name)
-
+	// Try unmarshal as array first
+	if err := json.Unmarshal([]byte(data), &arr); err == nil {
+		for _, p := range arr {
+			status := "Online"
+			if strings.TrimSpace(strings.ToUpper(p.PrinterStatus)) != "OK" && p.PrinterStatus != "" {
+				status = p.PrinterStatus
+			}
 			printers = append(printers, &models.PrinterInfo{
-				Name:        name,
-				DisplayName: name,
-				Type:        printerType,
+				Name:        p.Name,
+				DisplayName: p.Name,
+				Type:        s.detectPrinterType(p.Type + " " + p.PortName + " " + p.Name),
+				Port:        p.PortName,
 				IsDefault:   false,
-				Status:      "Online",
+				Status:      status,
 			})
 		}
+		return printers
 	}
+
+	// If not array, try single object
+	if err := json.Unmarshal([]byte(data), &one); err == nil {
+		status := "Online"
+		if strings.TrimSpace(strings.ToUpper(one.PrinterStatus)) != "OK" && one.PrinterStatus != "" {
+			status = one.PrinterStatus
+		}
+		printers = append(printers, &models.PrinterInfo{
+			Name:        one.Name,
+			DisplayName: one.Name,
+			Type:        s.detectPrinterType(one.Type + " " + one.PortName + " " + one.Name),
+			Port:        one.PortName,
+			IsDefault:   false,
+			Status:      status,
+		})
+		return printers
+	}
+
+	// If JSON parsing fails, fallback to WMIC
+	return s.getWindowsPrintersWMIC()
 
 	return printers
 }
@@ -268,7 +314,6 @@ func (s *PrinterService) getWindowsPrintersWMIC() []*models.PrinterInfo {
 	cmd := exec.Command("wmic", "printer", "get", "name,portname,status", "/format:list")
 	output, err := cmd.Output()
 	if err != nil {
-		log.Printf("Error getting Windows printers via WMIC: %v", err)
 		return printers
 	}
 
@@ -328,7 +373,6 @@ func (s *PrinterService) getLinuxPrinters() []*models.PrinterInfo {
 	cmd := exec.Command("lpstat", "-p")
 	output, err := cmd.Output()
 	if err != nil {
-		log.Printf("Error getting Linux printers: %v", err)
 		return printers
 	}
 
@@ -364,7 +408,6 @@ func (s *PrinterService) getMacOSPrinters() []*models.PrinterInfo {
 	cmd := exec.Command("lpstat", "-p")
 	output, err := cmd.Output()
 	if err != nil {
-		log.Printf("Error getting macOS printers: %v", err)
 		return printers
 	}
 
@@ -422,8 +465,6 @@ func (s *PrinterService) detectPrinterType(nameOrPort string) string {
 
 // TestPrint performs a test print to the specified printer
 func (s *PrinterService) TestPrint(printerName string) error {
-	log.Printf("Performing test print to: %s", printerName)
-
 	// Get current settings for header info
 	settings, _ := s.repo.GetPrintSettings()
 	if settings == nil {
@@ -447,71 +488,58 @@ func (s *PrinterService) generateTestPrintContent(settings *models.PrintSettings
 	var content string
 
 	content += initPrinter()
+	content += setCodePage(16) // Windows Latin-1
 
-	// Enable compressed mode untuk lebih banyak karakter
-	content += setCharacterWidth(1)
-
-	// Determine paper width based on settings
+	// Determine paper width based on settings (same logic as receipt)
 	paperWidth := settings.PaperWidth
 	if paperWidth == 0 {
 		// Fallback to default if not set
-		paperWidth = 40 // Default 40 untuk 58mm (dengan compressed mode)
+		paperWidth = 40 // Default 40 untuk 58mm
 		if settings.PaperSize == "80mm" {
-			paperWidth = 48 // Default 48 untuk 80mm (dengan compressed mode)
+			paperWidth = 48 // Default 48 untuk 80mm
 		}
 	}
 
 	// Reduce paper width by left margin to accommodate margin spaces
 	effectiveWidth := paperWidth - settings.LeftMargin
+	if effectiveWidth < 10 {
+		effectiveWidth = 10 // Minimum width
+	}
 
-	// ========== SECTION 1: HEADER (Alignment based on setting - NO MARGIN) ==========
-	content += setAlignment(getAlignmentCode(settings.HeaderAlignment))
-	content += s.getTextSizeCommand(settings.FontSize, false) // No compression untuk header
-	content += settings.HeaderText + "\n"
+	// Simple dash line using effectiveWidth
+	dashLine := strings.Repeat(settings.DashLineChar, effectiveWidth)
+
+	// === HEADER ===
+	content += setAlignment(ALIGN_CENTER)
 	content += setTextSize(1, 1)
-	content += settings.HeaderAddress + "\n"
-	content += settings.HeaderPhone + "\n"
+	content += settings.HeaderText + "\n"
 	content += "\n"
 
-	// ========== SECTION 2: BODY (Left - WITH MARGIN) ==========
+	// === TITLE ===
+	content += setTextSize(2, 2)
+	content += "TEST PRINT\n"
+	content += setTextSize(1, 1)
+	content += "\n"
+
+	// === INFO (WITH MARGIN) ===
 	var bodyContent string
-
-	dashLine := strings.Repeat(settings.DashLineChar, effectiveWidth)
 	bodyContent += setAlignment(ALIGN_LEFT)
-	bodyContent += dashLine + "\n\n"
-
-	bodyContent += setAlignment(getAlignmentCode(settings.TitleAlignment))
-	bodyContent += setTextSize(1, 2)
-	bodyContent += "TEST PRINT\n\n"
-	bodyContent += setTextSize(1, 1)
-
-	bodyContent += setAlignment(ALIGN_LEFT)
+	bodyContent += dashLine + "\n"
 	bodyContent += formatLine("Tanggal:", getTimeInWIB().Format("02/01/2006 15:04"), effectiveWidth)
 	bodyContent += formatLine("Printer:", settings.PrinterName, effectiveWidth)
-	bodyContent += formatLine("Paper:", settings.PaperSize, effectiveWidth)
-	bodyContent += formatLine("Font:", settings.FontSize, effectiveWidth)
-	bodyContent += formatLine("Spasi:", fmt.Sprintf("%d", settings.LineSpacing), effectiveWidth)
-	bodyContent += formatLine("Margin:", fmt.Sprintf("%d spasi", settings.LeftMargin), effectiveWidth)
-	bodyContent += formatLine("Lebar Kertas:", fmt.Sprintf("%d karakter", effectiveWidth), effectiveWidth)
-	bodyContent += "\n"
-	bodyContent += dashLine + "\n\n"
+	bodyContent += formatLine("Lebar Kertas:", fmt.Sprintf("%d karakter", paperWidth), effectiveWidth)
+	bodyContent += formatLine("Lebar Efektif:", fmt.Sprintf("%d karakter", effectiveWidth), effectiveWidth)
+	bodyContent += dashLine + "\n"
 
-	// Test untuk lebar maksimum
-	testLine := "0123456789" + strings.Repeat("X", effectiveWidth-10)
-	if len(testLine) > effectiveWidth {
-		testLine = testLine[:effectiveWidth]
-	}
-	bodyContent += testLine + "\n"
-	bodyContent += dashLine + "\n\n"
-
-	// Apply margin to body section
+	// Apply margin to body
 	content += applyLeftMarginToSection(bodyContent, settings.LeftMargin)
+	content += "\n"
 
-	// ========== SECTION 3: FOOTER (Alignment based on setting - NO MARGIN) ==========
-	content += setAlignment(getAlignmentCode(settings.FooterAlignment))
-	content += "TEST BERHASIL\n\n"
-	content += "Lebar maksimum: " + fmt.Sprintf("%d karakter", effectiveWidth) + "\n\n"
-	content += "Terima kasih\n\n"
+	// === FOOTER ===
+	content += setAlignment(ALIGN_CENTER)
+	content += "TEST BERHASIL\n"
+	content += "Terima kasih\n"
+	content += "\n\n"
 
 	// Cut paper
 	content += cutPaper()
@@ -520,17 +548,20 @@ func (s *PrinterService) generateTestPrintContent(settings *models.PrintSettings
 }
 
 // PrintReceipt prints a transaction receipt using ESC/POS
-func (s *PrinterService) PrintReceipt(req *models.PrintReceiptRequest) error {
-	log.Printf("=== PrintReceipt START === TransactionNo: %s, PrinterName: %s", req.TransactionNo, req.PrinterName)
+func (s *PrinterService) PrintReceipt(req *models.PrintReceiptRequest) (err error) {
+	// Panic Recovery
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[PRINTER] 💥 PANIC in PrintReceipt: %v", r)
+			err = fmt.Errorf("system print error: %v", r)
+		}
+	}()
 
 	// Get print settings
-	log.Println("Step 1: Getting print settings...")
 	settings, err := s.repo.GetPrintSettings()
 	if err != nil {
-		log.Printf("Warning: Failed to get settings from DB, using defaults: %v", err)
 		settings = s.repo.GetDefaultSettings()
 	}
-	log.Printf("Settings loaded: PrinterName=%s, PaperSize=%s", settings.PrinterName, settings.PaperSize)
 
 	// Use specified printer or default from settings
 	printerName := req.PrinterName
@@ -540,73 +571,54 @@ func (s *PrinterService) PrintReceipt(req *models.PrintReceiptRequest) error {
 
 	// If still no printer specified, try to auto-detect first available printer
 	if printerName == "" {
-		log.Println("Step 2: No printer configured, attempting to auto-detect...")
 		installedPrinters, err := s.GetInstalledPrinters()
 		if err != nil {
-			log.Printf("ERROR: Failed to get installed printers: %v", err)
 			return fmt.Errorf("tidak ada printer yang dikonfigurasi. Silakan atur printer di menu Pengaturan > Pengaturan Struk")
 		}
 		if len(installedPrinters) == 0 {
-			log.Println("ERROR: No printers found on system")
 			return fmt.Errorf("tidak ada printer yang terdeteksi di sistem. Silakan install printer terlebih dahulu")
 		}
 		// Use first available printer
 		printerName = installedPrinters[0].Name
-		log.Printf("Auto-detected printer: %s (from %d available printers)", printerName, len(installedPrinters))
-	} else {
-		log.Printf("Step 2: Using configured printer: %s", printerName)
 	}
 
 	// Get transaction data and generate receipt
-	log.Println("Step 3: Getting transaction data and generating receipt content...")
 	var content string
 	if req.UseCustomData && req.CustomData != nil {
-		log.Println("Using custom data for receipt")
 		content = s.generateReceiptFromCustomData(req.CustomData, settings)
 	} else {
 		if req.TransactionNo == "" {
-			log.Println("ERROR: TransactionNo is empty")
 			return fmt.Errorf("nomor transaksi tidak boleh kosong")
 		}
-		log.Printf("Fetching transaction: %s", req.TransactionNo)
 		transaksi, err := s.transaksiService.GetTransaksiByNoTransaksi(req.TransactionNo)
 		if err != nil {
-			log.Printf("ERROR: Failed to get transaction '%s': %v", req.TransactionNo, err)
 			return fmt.Errorf("gagal mengambil data transaksi: %v", err)
 		}
 		if transaksi == nil {
-			log.Printf("ERROR: Transaction '%s' not found (nil)", req.TransactionNo)
 			return fmt.Errorf("transaksi '%s' tidak ditemukan", req.TransactionNo)
 		}
-		log.Printf("Transaction found: %s, Items: %d", transaksi.Transaksi.NomorTransaksi, len(transaksi.Items))
 		content = s.generateReceiptContent(transaksi, settings)
 	}
-	log.Printf("Receipt content generated: %d bytes", len(content))
 
 	// Print multiple copies if specified
-	log.Printf("Step 4: Preparing %d copies...", settings.CopiesCount)
 	finalContent := ""
 	for i := 0; i < settings.CopiesCount; i++ {
 		finalContent += content
 	}
 
 	// Print using RAW method for Windows
-	log.Printf("Step 5: Printing to '%s' (OS: %s)...", printerName, runtime.GOOS)
 	if runtime.GOOS == "windows" {
 		err := printRaw(printerName, finalContent)
 		if err != nil {
-			log.Printf("ERROR: printRaw failed: %v", err)
 			return fmt.Errorf("gagal mencetak ke printer '%s': %v", printerName, err)
 		}
 	} else {
 		err := s.printContentFallback(printerName, finalContent)
 		if err != nil {
-			log.Printf("ERROR: printContentFallback failed: %v", err)
 			return fmt.Errorf("gagal mencetak ke printer '%s': %v", printerName, err)
 		}
 	}
 
-	log.Println("=== PrintReceipt SUCCESS ===")
 	return nil
 }
 
@@ -615,6 +627,8 @@ func (s *PrinterService) generateReceiptContent(transaksi *models.TransaksiDetai
 	var content string
 
 	content += initPrinter()
+	// Set Windows Latin-1 codepage for better character compatibility on Windows printers
+	content += setCodePage(16)
 
 	// Enable compressed mode untuk lebih banyak karakter
 	content += setCharacterWidth(1)
@@ -668,16 +682,28 @@ func (s *PrinterService) generateReceiptContent(transaksi *models.TransaksiDetai
 		itemNum := fmt.Sprintf("%d.", i+1)
 		bodyContent += itemNum + " "
 
-		// Lebar maksimum untuk nama produk lebih besar sekarang
-		maxNameLength := effectiveWidth - 25 // Diperluas dari 20 menjadi 25
+		// Lebar maksimum untuk nama produk (minimal 10 karakter agar tidak panic)
+		maxNameLength := effectiveWidth
+		if effectiveWidth > 25 {
+			maxNameLength = effectiveWidth // Biarkan satu baris penuh jika ingin wrap
+		}
+
 		productName := item.ProdukNama
-		if len(productName) > maxNameLength {
-			productName = productName[:maxNameLength] + "..."
+		if maxNameLength > 0 && len(productName) > maxNameLength {
+			// Jika ingin membatasi produk hanya 1 baris (opsional)
+			// productName = productName[:maxNameLength]
 		}
 		bodyContent += productName + "\n"
 
-		// Format quantity, unit price and subtotal
-		qtyPrice := fmt.Sprintf("  %d x %s", item.Jumlah, formatRupiah(float64(item.HargaSatuan)))
+		// Format quantity/weight and subtotal
+		var qtyPrice string
+		if item.BeratGram > 0 {
+			// Jika produk dijual per gram, tampilkan berat
+			qtyPrice = fmt.Sprintf("  %.0fg", item.BeratGram)
+		} else {
+			// Jika produk dijual per quantity, tampilkan jumlah
+			qtyPrice = fmt.Sprintf("  %d x %s", item.Jumlah, formatRupiah(float64(item.HargaSatuan)))
+		}
 		subtotal := formatRupiah(float64(item.Subtotal))
 		bodyContent += formatLine(qtyPrice, subtotal, effectiveWidth)
 		bodyContent += "\n"
@@ -737,6 +763,8 @@ func (s *PrinterService) generateReceiptFromCustomData(data *models.CustomReceip
 	var content string
 
 	content += initPrinter()
+	// Set Windows Latin-1 codepage for better character compatibility on Windows printers
+	content += setCodePage(16)
 
 	// Enable compressed mode untuk lebih banyak karakter
 	content += setCharacterWidth(1)
@@ -790,11 +818,12 @@ func (s *PrinterService) generateReceiptFromCustomData(data *models.CustomReceip
 		itemNum := fmt.Sprintf("%d.", i+1)
 		bodyContent += itemNum + " "
 
-		// Lebar maksimum untuk nama produk lebih besar sekarang
-		maxNameLength := effectiveWidth - 25 // Diperluas dari 20 menjadi 25
+		// Lebar maksimum untuk nama produk
+		maxNameLength := effectiveWidth
+
 		productName := item.Name
-		if len(productName) > maxNameLength {
-			productName = productName[:maxNameLength] + "..."
+		if maxNameLength > 0 && len(productName) > maxNameLength {
+			// productName = productName[:maxNameLength]
 		}
 		bodyContent += productName + "\n"
 
@@ -926,4 +955,10 @@ func (s *PrinterService) GetPrintSettings() (*models.PrintSettings, error) {
 // SavePrintSettings saves print settings
 func (s *PrinterService) SavePrintSettings(settings *models.PrintSettings) error {
 	return s.repo.SavePrintSettings(settings)
+}
+
+// Set code page for character encoding
+// Common values: 0=CP437 (USA), 16=CP1252 (Windows Latin-1)
+func setCodePage(code byte) string {
+	return string([]byte{ESC, 't', code})
 }

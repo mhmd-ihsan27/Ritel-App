@@ -3,31 +3,32 @@ package models
 import "time"
 
 type Promo struct {
-	ID                 int       `json:"id"`
-	Nama               string    `json:"nama"`
-	ProdukXID          int       `json:"produkXId,omitempty"`
-	ProdukYID          int       `json:"produkYId,omitempty"`
-	Kode               string    `json:"kode"`
-	Tipe               string    `json:"tipe"`
-	TipePromo          string    `json:"tipe_promo"`
-	TipeProdukBerlaku  string    `json:"tipeProdukBerlaku"`
-	Nilai              int       `json:"nilai"`
-	MinQuantity        int       `json:"minQuantity"`
-	MaxDiskon          int       `json:"maxDiskon"`
-	TanggalMulai       time.Time `json:"tanggalMulai"`
-	TanggalSelesai     time.Time `json:"tanggalSelesai"`
-	Status             string    `json:"status"`
-	Deskripsi          string    `json:"deskripsi"`
-	BuyQuantity        int       `json:"buyQuantity"`
-	GetQuantity        int       `json:"getQuantity"`
-	HargaBundling      int       `json:"hargaBundling"`
-	TipeBundling       string    `json:"tipeBundling"`
-	DiskonBundling     int       `json:"diskonBundling"`
-	ProdukX            *Produk   `json:"produkX,omitempty"`
-	ProdukY            *Produk   `json:"produkY,omitempty"`
-	TipeBuyGet         string    `json:"tipeBuyGet"`
-	CreatedAt          time.Time `json:"createdAt"`
-	UpdatedAt          time.Time `json:"updatedAt"`
+	ID             int       `json:"id,string"`
+	Nama           string    `json:"nama"`
+	ProdukXID      int       `json:"produkXId,string,omitempty"`
+	ProdukYID      int       `json:"produkYId,string,omitempty"`
+	Kode           string    `json:"kode"`
+	Tipe           string    `json:"tipe"`
+	TipePromo      string    `json:"tipePromo"`
+	TipeProduk     string    `json:"tipeProduk"` // "curah" atau "satuan" - untuk diskon_produk
+	MinGramasi     int       `json:"minGramasi"` // Minimal gramasi dalam gram - untuk curah
+	Nilai          int       `json:"nilai"`
+	MinQuantity    int       `json:"minQuantity"`
+	MaxDiskon      int       `json:"maxDiskon"`
+	TanggalMulai   time.Time `json:"tanggalMulai"`
+	TanggalSelesai time.Time `json:"tanggalSelesai"`
+	Status         string    `json:"status"`
+	Deskripsi      string    `json:"deskripsi"`
+	BuyQuantity    int       `json:"buyQuantity"`
+	GetQuantity    int       `json:"getQuantity"`
+	HargaBundling  int       `json:"hargaBundling"`
+	TipeBundling   string    `json:"tipeBundling"`
+	DiskonBundling int       `json:"diskonBundling"`
+	ProdukX        *Produk   `json:"produkX,omitempty"`
+	ProdukY        *Produk   `json:"produkY,omitempty"`
+	TipeBuyGet     string    `json:"tipeBuyGet"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
 }
 
 type RealTimeValidationResponse struct {
@@ -45,9 +46,9 @@ type CalculateDiscountResponse struct {
 }
 
 type PromoProduk struct {
-	ID        int       `json:"id"`
-	PromoID   int       `json:"promoId"`
-	ProdukID  int       `json:"produkId"`
+	ID        int       `json:"id,string"`
+	PromoID   int       `json:"promoId,string"`
+	ProdukID  int       `json:"produkId,string"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -57,59 +58,61 @@ type PromoWithProducts struct {
 }
 
 type CreatePromoRequest struct {
-	Nama              string `json:"nama"`
-	Kode              string `json:"kode"`
-	Tipe              string `json:"tipe"`
-	TipePromo         string `json:"tipe_promo"`
-	TipeProdukBerlaku string `json:"tipeProdukBerlaku"`
-	Nilai             int    `json:"nilai"`
-	MinQuantity       int    `json:"minQuantity"`
-	MaxDiskon         int    `json:"maxDiskon"`
-	TanggalMulai      string `json:"tanggalMulai"`
-	TanggalSelesai    string `json:"tanggalSelesai"`
-	Status            string `json:"status"`
-	Deskripsi         string `json:"deskripsi"`
-	BuyQuantity       int    `json:"buyQuantity"`
-	GetQuantity       int    `json:"getQuantity"`
-	TipeBuyGet        string `json:"tipeBuyGet"`
-	HargaBundling     int    `json:"hargaBundling"`
-	TipeBundling      string `json:"tipeBundling"`
-	DiskonBundling    int    `json:"diskonBundling"`
-	ProdukIDs         []int  `json:"produkIds"`
-	ProdukX           *int   `json:"produkX"`
-	ProdukY           *int   `json:"produkY"`
+	Nama           string `json:"nama"`
+	Kode           string `json:"kode"`
+	Tipe           string `json:"tipe"`
+	TipePromo      string `json:"tipePromo"`
+	TipeProduk     string `json:"tipeProduk"` // "curah" atau "satuan"
+	MinGramasi     int    `json:"minGramasi"` // Minimal gramasi untuk curah
+	Nilai          int    `json:"nilai"`
+	MinQuantity    int    `json:"minQuantity"`
+	MaxDiskon      int    `json:"maxDiskon"`
+	TanggalMulai   string `json:"tanggalMulai"`
+	TanggalSelesai string `json:"tanggalSelesai"`
+	Status         string `json:"status"`
+	Deskripsi      string `json:"deskripsi"`
+	BuyQuantity    int    `json:"buyQuantity"`
+	GetQuantity    int    `json:"getQuantity"`
+	TipeBuyGet     string `json:"tipeBuyGet"`
+	HargaBundling  int    `json:"hargaBundling"`
+	TipeBundling   string `json:"tipeBundling"`
+	DiskonBundling int    `json:"diskonBundling"`
+	ProdukIDs      []int  `json:"produkIds"`
+	ProdukX        *int   `json:"produkX"`
+	ProdukY        *int   `json:"produkY"`
 }
 
 type UpdatePromoRequest struct {
-	ID                int    `json:"id"`
-	Nama              string `json:"nama"`
-	Kode              string `json:"kode"`
-	Tipe              string `json:"tipe"`
-	TipePromo         string `json:"tipe_promo"`
-	TipeProdukBerlaku string `json:"tipeProdukBerlaku"`
-	Nilai             int    `json:"nilai"`
-	MinQuantity       int    `json:"minQuantity"`
-	MaxDiskon         int    `json:"maxDiskon"`
-	TanggalMulai      string `json:"tanggalMulai"`
-	TanggalSelesai    string `json:"tanggalSelesai"`
-	Status            string `json:"status"`
-	Deskripsi         string `json:"deskripsi"`
-	BuyQuantity       int    `json:"buyQuantity"`
-	GetQuantity       int    `json:"getQuantity"`
-	TipeBuyGet        string `json:"tipeBuyGet"`
-	HargaBundling     int    `json:"hargaBundling"`
-	TipeBundling      string `json:"tipeBundling"`
-	DiskonBundling    int    `json:"diskonBundling"`
-	ProdukIDs         []int  `json:"produkIds"`
-	ProdukX           *int   `json:"produkX"`
-	ProdukY           *int   `json:"produkY"`
+	ID             int    `json:"id,string"`
+	Nama           string `json:"nama"`
+	Kode           string `json:"kode"`
+	Tipe           string `json:"tipe"`
+	TipePromo      string `json:"tipePromo"`
+	TipeProduk     string `json:"tipeProduk"` // "curah" atau "satuan"
+	MinGramasi     int    `json:"minGramasi"` // Minimal gramasi untuk curah
+	Nilai          int    `json:"nilai"`
+	MinQuantity    int    `json:"minQuantity"`
+	MaxDiskon      int    `json:"maxDiskon"`
+	TanggalMulai   string `json:"tanggalMulai"`
+	TanggalSelesai string `json:"tanggalSelesai"`
+	Status         string `json:"status"`
+	Deskripsi      string `json:"deskripsi"`
+	BuyQuantity    int    `json:"buyQuantity"`
+	GetQuantity    int    `json:"getQuantity"`
+	TipeBuyGet     string `json:"tipeBuyGet"`
+	HargaBundling  int    `json:"hargaBundling"`
+	TipeBundling   string `json:"tipeBundling"`
+	DiskonBundling int    `json:"diskonBundling"`
+	ProdukIDs      []int  `json:"produkIds"`
+	ProdukX        *int   `json:"produkX"`
+	ProdukY        *int   `json:"produkY"`
 }
 
 type ApplyPromoRequest struct {
 	Kode          string                 `json:"kode"`
 	Subtotal      int                    `json:"subtotal"`
 	TotalQuantity int                    `json:"totalQuantity"`
-	PelangganID   int                    `json:"pelangganId"`
+	PelangganID   int64                  `json:"pelangganId,string"`
 	Items         []TransaksiItemRequest `json:"items,omitempty"`
 }
 

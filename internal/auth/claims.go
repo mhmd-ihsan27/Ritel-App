@@ -6,7 +6,7 @@ import (
 
 // Claims represents the custom JWT claims for authentication
 type Claims struct {
-	UserID      int    `json:"user_id"`
+	UserID      int64  `json:"user_id"`
 	Username    string `json:"username"`
 	NamaLengkap string `json:"nama_lengkap"`
 	Role        string `json:"role"`

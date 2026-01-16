@@ -14,9 +14,6 @@ export const isDesktopMode = () => {
     return true;
   }
 
-  // In Wails dev mode, window.wails might not be immediately available
-  // Check if we're running on the Wails dev server (localhost:34115 is the default Wails dev port)
-  // or if go/wailsjs bindings are available
   if (typeof window !== 'undefined') {
     // Check if running via Wails dev (check for wailsjs in window or runtime)
     if (window.runtime !== undefined || window.go !== undefined) {
